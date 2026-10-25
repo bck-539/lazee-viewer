@@ -346,6 +346,36 @@ fn baseline_in_slice(d: &[u8]) -> bool {
     false
 }
 
+/// Returns `jpeg` with its EXIF replaced by a minimal block holding only
+/// `orientation`. RAW previews usually carry no orientation of their own,
+/// so this lets the viewer rotate them like any other JPEG.
+pub fn set_orientation(jpeg: &[u8], orientation: u8) -> Vec<u8> {
+    let mut out = Vec::with_capacity(jpeg.len() + 64);
+    out.extend_from_slice(&[0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x22]);
+    out.extend_from_slice(b"Exif\0\0II*\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0");
+    out.extend_from_slice(&[orientation, 0, 0, 0, 0, 0, 0, 0]);
+    if !jpeg.starts_with(&[0xFF, 0xD8]) {
+        return jpeg.to_vec();
+    }
+    let mut pos = 2;
+    while pos + 4 <= jpeg.len() && jpeg[pos] == 0xFF {
+        let marker = jpeg[pos + 1];
+        // Stop at the image data; everything from here is copied as is.
+        if marker == 0xDA || (0xD0..=0xD9).contains(&marker) {
+            break;
+        }
+        let len = u16::from_be_bytes([jpeg[pos + 2], jpeg[pos + 3]]) as usize;
+        let end = (pos + 2 + len).min(jpeg.len());
+        let is_exif = marker == 0xE1 && jpeg.get(pos + 4..end).is_some_and(|d| d.starts_with(b"Exif\0\0"));
+        if !is_exif {
+            out.extend_from_slice(&jpeg[pos..end]);
+        }
+        pos = end;
+    }
+    out.extend_from_slice(&jpeg[pos.min(jpeg.len())..]);
+    out
+}
+
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
@@ -428,6 +458,18 @@ pub(crate) mod tests {
         let raw = lossless_stub(preview.len() * 4);
         let (mut f, len) = file_with(&fake_tiff_raw(&thumb, &preview, &raw));
         assert_eq!(extract_preview(&mut f, len).unwrap(), Some(preview));
+    }
+
+    #[test]
+    fn orientation_is_written_and_old_exif_dropped() {
+        let base = jpeg(32, 16);
+        let once = set_orientation(&base, 6);
+        let twice = set_orientation(&once, 8);
+        assert_eq!(crate::meta::read_bytes(&once).orientation, 6);
+        assert_eq!(crate::meta::read_bytes(&twice).orientation, 8);
+        assert_eq!(twice.len(), once.len(), "the old EXIF block is replaced, not stacked");
+        let img = image::load_from_memory(&twice).unwrap();
+        assert_eq!((img.width(), img.height()), (32, 16));
     }
 
     #[test]

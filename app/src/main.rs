@@ -1,15 +1,17 @@
 // Hide the console window in release builds on Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use lazee_core::{Library, PhotoInfo, PhotoList, ScanControl, ScanProgress, SortOrder, Source};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+mod background;
+
+use lazee_core::{FullImage, Library, PhotoInfo, PhotoList, SortOrder, Source};
+use std::sync::Arc;
 use tauri::http::{header, Response, StatusCode};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 struct AppState {
     lib: Arc<Library>,
-    scan: Mutex<Option<Arc<ScanControl>>>,
+    scans: background::Scans,
+    watch: background::FolderWatch,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -36,16 +38,21 @@ async fn refresh_volumes(state: State<'_, AppState>) -> CmdResult<Vec<Source>> {
 }
 
 #[tauri::command]
-fn add_source(state: State<AppState>, path: String) -> CmdResult<Source> {
-    state.lib.add_source(path.as_ref()).map_err(err)
+fn add_source(app: AppHandle, state: State<AppState>, path: String) -> CmdResult<Source> {
+    let source = state.lib.add_source(path.as_ref()).map_err(err)?;
+    background::rewatch(&app);
+    background::request_scan(&app, Some(vec![source.id]))?;
+    Ok(source)
 }
 
 #[tauri::command]
-fn remove_source(state: State<AppState>, id: i64) -> CmdResult<()> {
-    if state.scan.lock().unwrap().is_some() {
+fn remove_source(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<()> {
+    if state.scans.is_running() {
         return Err("Wait for the scan to finish, or stop it, before removing a folder.".into());
     }
-    state.lib.remove_source(id).map_err(err)
+    state.lib.remove_source(id).map_err(err)?;
+    background::rewatch(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -58,66 +65,84 @@ fn photo_info(state: State<AppState>, id: i64) -> CmdResult<Option<PhotoInfo>> {
     state.lib.photo_info(id).map_err(err)
 }
 
+/// Why the full image for a photo could not be shown, in words for the UI.
 #[tauri::command]
-fn start_scan(app: AppHandle, state: State<AppState>) -> CmdResult<()> {
-    let mut slot = state.scan.lock().unwrap();
-    if slot.is_some() {
-        return Err("A scan is already running.".into());
-    }
-    let ctl = Arc::new(ScanControl::default());
-    *slot = Some(ctl.clone());
+async fn photo_problem(state: State<'_, AppState>, id: i64) -> CmdResult<String> {
     let lib = state.lib.clone();
-    std::thread::Builder::new()
-        .name("scan".into())
-        .spawn(move || {
-            // Progress arrives far more often than the UI needs it.
-            let last = Mutex::new(Instant::now() - Duration::from_secs(1));
-            let on_progress = |p: &ScanProgress| {
-                let mut last = last.lock().unwrap();
-                if last.elapsed() >= Duration::from_millis(150) {
-                    *last = Instant::now();
-                    let _ = app.emit("scan-progress", p);
-                }
-            };
-            let result = lib.scan(&ctl, &on_progress).map_err(err);
-            *app.state::<AppState>().scan.lock().unwrap() = None;
-            let _ = app.emit("scan-finished", result);
-        })
-        .map_err(err)?;
-    Ok(())
+    let problem = tauri::async_runtime::spawn_blocking(move || match lib.full_image(id) {
+        Ok(FullImage::Offline(drive)) => format!("Connect {drive} to see the full photo."),
+        Ok(FullImage::Missing) => "This photo is no longer where it was. A scan will tidy it up.".into(),
+        Ok(FullImage::Jpeg(_)) => "This photo could not be decoded.".into(),
+        Err(e) => format!("This photo could not be opened: {e}"),
+    })
+    .await
+    .map_err(err)?;
+    Ok(problem)
+}
+
+#[tauri::command]
+fn start_scan(app: AppHandle) -> CmdResult<()> {
+    background::request_scan(&app, None)
 }
 
 #[tauri::command]
 fn pause_scan(state: State<AppState>, paused: bool) {
-    if let Some(ctl) = state.scan.lock().unwrap().as_ref() {
+    if let Some(ctl) = state.scans.control() {
         ctl.set_paused(paused);
     }
 }
 
 #[tauri::command]
 fn cancel_scan(state: State<AppState>) {
-    if let Some(ctl) = state.scan.lock().unwrap().as_ref() {
-        ctl.cancel();
-    }
+    state.scans.cancel();
+}
+
+#[tauri::command]
+fn scan_running(state: State<AppState>) -> bool {
+    state.scans.is_running()
+}
+
+fn empty(status: StatusCode) -> Response<Vec<u8>> {
+    Response::builder().status(status).body(Vec::new()).expect("static response parts are valid")
+}
+
+fn jpeg(bytes: Vec<u8>, cache: &str) -> Response<Vec<u8>> {
+    Response::builder()
+        .header(header::CONTENT_TYPE, "image/jpeg")
+        .header(header::CACHE_CONTROL, cache)
+        .body(bytes)
+        .expect("static response parts are valid")
+}
+
+fn photo_id(path: &str) -> Option<i64> {
+    path.trim_start_matches('/').parse().ok()
 }
 
 /// Serves `thumb://localhost/<photo id>` (`http://thumb.localhost/<id>` on
 /// Windows) from the thumbnail cache, so the grid never touches the photos'
 /// own drives.
 fn thumbnail_response(lib: &Library, path: &str) -> Response<Vec<u8>> {
-    let found = path.trim_start_matches('/').parse::<i64>().ok().map(|id| lib.thumbnail(id));
-    match found {
-        Some(Ok(Some(jpeg))) => Response::builder()
-            .header(header::CONTENT_TYPE, "image/jpeg")
-            .header(header::CACHE_CONTROL, "max-age=600")
-            .body(jpeg),
+    match photo_id(path).map(|id| lib.thumbnail(id)) {
+        Some(Ok(Some(bytes))) => jpeg(bytes, "max-age=600"),
         Some(Err(e)) => {
             log::warn!("thumbnail {path}: {e}");
-            Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(Vec::new())
+            empty(StatusCode::INTERNAL_SERVER_ERROR)
         }
-        _ => Response::builder().status(StatusCode::NOT_FOUND).body(Vec::new()),
+        _ => empty(StatusCode::NOT_FOUND),
     }
-    .expect("static response parts are valid")
+}
+
+/// Serves `photo://localhost/<photo id>`: the full image for the viewer.
+fn photo_response(lib: &Library, path: &str) -> Response<Vec<u8>> {
+    match photo_id(path).map(|id| lib.full_image(id)) {
+        Some(Ok(FullImage::Jpeg(bytes))) => jpeg(bytes, "no-cache"),
+        Some(Ok(FullImage::Offline(_))) => empty(StatusCode::SERVICE_UNAVAILABLE),
+        Some(Err(e)) => {
+            log::warn!("photo {path}: {e}");
+            empty(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+        _ => empty(StatusCode::NOT_FOUND),
+    }
 }
 
 fn main() {
@@ -129,13 +154,20 @@ fn main() {
             let dir = app.path().app_local_data_dir()?;
             log::info!("library data in {}", dir.display());
             let lib = Library::open(&dir)?;
-            app.manage(AppState { lib: Arc::new(lib), scan: Mutex::new(None) });
+            app.manage(AppState { lib: Arc::new(lib), scans: Default::default(), watch: Default::default() });
+            background::rewatch(app.handle());
+            background::start_monitor(app.handle().clone());
             Ok(())
         })
         .register_asynchronous_uri_scheme_protocol("thumb", |ctx, request, responder| {
             let lib = ctx.app_handle().state::<AppState>().lib.clone();
             let path = request.uri().path().to_string();
             tauri::async_runtime::spawn_blocking(move || responder.respond(thumbnail_response(&lib, &path)));
+        })
+        .register_asynchronous_uri_scheme_protocol("photo", |ctx, request, responder| {
+            let lib = ctx.app_handle().state::<AppState>().lib.clone();
+            let path = request.uri().path().to_string();
+            tauri::async_runtime::spawn_blocking(move || responder.respond(photo_response(&lib, &path)));
         })
         .invoke_handler(tauri::generate_handler![
             sources,
@@ -144,9 +176,11 @@ fn main() {
             remove_source,
             photo_list,
             photo_info,
+            photo_problem,
             start_scan,
             pause_scan,
             cancel_scan,
+            scan_running,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lazee Viewer");

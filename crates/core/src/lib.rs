@@ -12,7 +12,7 @@ pub mod scanner;
 pub mod thumbs;
 pub mod volume;
 
-pub use library::{Library, PhotoInfo, PhotoList, SortOrder, Source};
+pub use library::{FullImage, Library, PhotoInfo, PhotoList, SortOrder, Source};
 pub use scanner::{ScanControl, ScanPhase, ScanProgress, ScanSummary};
 
 #[derive(Debug, thiserror::Error)]

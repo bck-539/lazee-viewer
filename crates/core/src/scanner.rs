@@ -114,10 +114,16 @@ struct Processed {
     error: Option<String>,
 }
 
-pub fn scan(lib: &Library, ctl: &ScanControl, on_progress: &(dyn Fn(&ScanProgress) + Sync)) -> Result<ScanSummary> {
+/// Scans the given sources, or all of them when `only` is `None`.
+pub fn scan(
+    lib: &Library,
+    only: Option<&[i64]>,
+    ctl: &ScanControl,
+    on_progress: &(dyn Fn(&ScanProgress) + Sync),
+) -> Result<ScanSummary> {
     let mut summary = ScanSummary::default();
     let roots = lib.refresh_volumes();
-    let sources = lib.sources()?;
+    let sources: Vec<_> = lib.sources()?.into_iter().filter(|s| only.is_none_or(|ids| ids.contains(&s.id))).collect();
     let threads = std::thread::available_parallelism().map_or(2, |n| n.get()).saturating_sub(1).max(1);
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(threads)

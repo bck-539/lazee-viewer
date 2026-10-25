@@ -102,8 +102,17 @@ grid.addEventListener("click", (e) => {
   if (cell) select(Number(cell.dataset.id));
 });
 
+grid.addEventListener("dblclick", (e) => {
+  const cell = e.target.closest(".cell");
+  if (cell) openViewer(state.ids.indexOf(Number(cell.dataset.id)));
+});
+
 grid.addEventListener("keydown", (e) => {
   if (state.selected === null || state.ids.length === 0) return;
+  if (e.key === "Enter") {
+    openViewer(state.ids.indexOf(state.selected));
+    return;
+  }
   const moves = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -layout.cols, ArrowDown: layout.cols };
   if (!(e.key in moves)) return;
   e.preventDefault();
@@ -199,9 +208,9 @@ $("#add-source").addEventListener("click", async () => {
   const path = await openDialog({ directory: true, multiple: false, title: "Add a photo folder" });
   if (!path) return;
   try {
+    // Adding a folder starts its scan in the background.
     await invoke("add_source", { path });
     await loadSources();
-    startScan();
   } catch (e) {
     alert(e);
   }
@@ -233,14 +242,22 @@ function setScanning(on) {
 async function startScan() {
   if (state.scanning) return;
   try {
-    setScanning(true);
-    $("#scan-status").textContent = "Checking drives…";
     await invoke("start_scan");
   } catch (e) {
-    setScanning(false);
     $("#scan-status").textContent = String(e);
   }
 }
+
+// Scans also start on their own: when a folder is added, when files change
+// in a watched folder, or when a drive is plugged in.
+listen("scan-started", () => {
+  if (!state.scanning) setScanning(true);
+  $("#scan-status").textContent = "Checking drives…";
+});
+
+listen("volumes-changed", async () => {
+  await Promise.all([loadSources(), loadPhotos({ keepScroll: true })]);
+});
 
 $("#scan-start").addEventListener("click", startScan);
 $("#scan-pause").addEventListener("click", () => {
@@ -273,8 +290,9 @@ listen("scan-progress", ({ payload: p }) => {
   }
 });
 
-listen("scan-finished", async ({ payload }) => {
-  setScanning(false);
+listen("scan-finished", async ({ payload: [result, more] }) => {
+  const payload = result;
+  if (!more) setScanning(false);
   if (payload.Err) {
     $("#scan-status").textContent = `Scan failed: ${payload.Err}`;
   } else {
@@ -297,6 +315,7 @@ listen("scan-finished", async ({ payload }) => {
 
 (async () => {
   await Promise.all([loadSources(), loadPhotos()]);
+  if (await invoke("scan_running")) setScanning(true);
   grid.focus();
   // Drives may have been plugged in or unplugged since last time.
   loadSources(await invoke("refresh_volumes"));
