@@ -125,3 +125,38 @@ fn cancelled_scan_removes_nothing() {
     assert!(s.cancelled);
     assert_eq!(lib.photo_list(SortOrder::Name, None).unwrap().ids.len(), 1);
 }
+
+#[test]
+fn full_images_and_partial_scans() {
+    use lazee_core::FullImage;
+    let a = tempfile::tempdir().unwrap();
+    let b = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let original = jpeg(300, 200, 4);
+    write(&a.path().join("a.jpg"), &original);
+    let mut raw = b"IIRO\x08\0\0\0\0\0\0\0\0\0".to_vec();
+    raw.extend_from_slice(&jpeg(300, 200, 6));
+    write(&b.path().join("b.orf"), &raw);
+
+    let lib = Library::open(data.path()).unwrap();
+    let sa = lib.add_source(a.path()).unwrap();
+    lib.add_source(b.path()).unwrap();
+    let s = lib.scan_sources(&[sa.id], &ScanControl::default(), &|_| {}).unwrap();
+    assert_eq!(s.added, 1, "only the requested source is scanned");
+    scan(&lib);
+
+    let ids = lib.photo_list(SortOrder::Name, None).unwrap().ids;
+    match lib.full_image(ids[0]).unwrap() {
+        FullImage::Jpeg(bytes) => assert_eq!(bytes, original, "JPEGs pass through untouched"),
+        _ => panic!("expected the JPEG"),
+    }
+    match lib.full_image(ids[1]).unwrap() {
+        FullImage::Jpeg(bytes) => assert!(image::load_from_memory(&bytes).is_ok()),
+        _ => panic!("expected the RAW preview"),
+    }
+    assert_eq!(lib.watch_targets().unwrap().len(), 2);
+
+    std::fs::remove_file(a.path().join("a.jpg")).unwrap();
+    assert!(matches!(lib.full_image(ids[0]).unwrap(), FullImage::Missing));
+    assert!(matches!(lib.full_image(-1).unwrap(), FullImage::Missing));
+}

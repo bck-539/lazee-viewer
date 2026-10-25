@@ -17,13 +17,21 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' thumb: http://thumb.localhost; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; img-src 'self' thumb: photo: http://thumb.localhost http://photo.localhost; style-src 'self' 'unsafe-inline'"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis"],
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.png", "icons/icon.ico"],
+    "targets": [
+      "msi",
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
     "license": "GPL-3.0-only",
     "category": "Photography"
   }

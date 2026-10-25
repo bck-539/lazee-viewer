@@ -8,8 +8,8 @@ telemetry.
 Built for big libraries on modest hardware: 200,000+ JPEG and RAW photos
 spread over internal disks, USB drives and a NAS.
 
-> **Status:** early development. Milestone 1 (library indexing and the
-> thumbnail grid) is in place; face recognition comes next. See the
+> **Status:** early development. Library indexing, the thumbnail grid and
+> the full-screen viewer are in place; face recognition comes next. See the
 > [roadmap](#roadmap).
 
 ## What works today
@@ -28,6 +28,16 @@ spread over internal disks, USB drives and a NAS.
   touches USB drives or the NAS. The grid only draws what is on screen.
 - Scans run in the background on all cores but one, and can be paused or
   stopped. Re-scans only open new or changed files.
+- Local and USB folders are watched, so new, moved and deleted photos show
+  up by themselves. Network shares are rescanned every hour, and a drive
+  is rescanned as soon as it is plugged back in.
+- Full-screen viewer: double-click a photo or press Enter. Arrow keys,
+  Page Up/Down or a swipe move between photos; the mouse wheel zooms
+  around the pointer; drag to pan; `0` fits to the screen, `1` shows 100%,
+  `F` goes full screen, `Esc` goes back. The thumbnail shows instantly
+  while the full photo loads, and the next photos are preloaded.
+- A photo on a disconnected drive still opens from its thumbnail, with a
+  note saying which drive to connect.
 
 ## Building
 
@@ -62,8 +72,8 @@ The library lives in `%LOCALAPPDATA%\io.github.bck539.lazeeviewer`:
 ## Roadmap
 
 1. **Library and grid** (done): indexing, volumes, thumbnails.
-2. **Viewer:** full-screen view with zoom and pan, folder watching, NAS
-   rescans.
+2. **Viewer** (done): full-screen view with zoom and pan, folder watching,
+   NAS rescans.
 3. **Face model spike:** compare redistributable models (YuNet + SFace and
    others) on real photos.
 4. **Faces:** background detection, embeddings, unnamed clusters, face boxes.

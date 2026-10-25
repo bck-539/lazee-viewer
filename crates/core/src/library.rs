@@ -66,6 +66,17 @@ pub struct PhotoInfo {
     pub error: Option<String>,
 }
 
+/// The full-size image for the viewer.
+pub enum FullImage {
+    /// JPEG bytes, ready to show. For a RAW file this is its embedded
+    /// preview, tagged with the RAW's orientation.
+    Jpeg(Vec<u8>),
+    /// The photo's drive is not connected; holds the drive's name.
+    Offline(String),
+    /// The photo is not in the library, or no longer on disk.
+    Missing,
+}
+
 impl Library {
     /// Opens or creates the library stored in `data_dir`.
     pub fn open(data_dir: &Path) -> Result<Self> {
@@ -299,10 +310,77 @@ impl Library {
         Ok(stmt.query_row([id], |r| r.get(0)).optional()?)
     }
 
+    /// Reads a photo for full-screen viewing. The original JPEG is passed
+    /// through untouched; the WebView decodes it faster than we could.
+    pub fn full_image(&self, id: i64) -> Result<FullImage> {
+        let row = self
+            .reader()
+            .query_row(
+                "SELECT f.name, fo.rel_path, v.key, v.label, f.kind, f.orientation
+                 FROM files f JOIN folders fo ON fo.id = f.folder_id JOIN volumes v ON v.id = fo.volume_id
+                 WHERE f.id = ?1",
+                [id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                        r.get::<_, u8>(5)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((name, rel_dir, key, label, kind, orientation)) = row else { return Ok(FullImage::Missing) };
+        let Some(root) = self.root_of(&key) else { return Ok(FullImage::Offline(label)) };
+        let path = volume::join(&root, &rel_dir).join(name);
+        let result = if kind == "raw" {
+            std::fs::File::open(&path).and_then(|mut f| {
+                let len = f.metadata()?.len();
+                crate::raw::extract_preview(&mut f, len)
+            })
+        } else {
+            std::fs::read(&path).map(Some)
+        };
+        match result {
+            Ok(Some(jpeg)) if kind == "raw" => Ok(FullImage::Jpeg(crate::raw::set_orientation(&jpeg, orientation))),
+            Ok(Some(jpeg)) => Ok(FullImage::Jpeg(jpeg)),
+            Ok(None) => Ok(FullImage::Missing),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(FullImage::Missing),
+            // The drive went away since we last checked.
+            Err(_) if !root.exists() => Ok(FullImage::Offline(label)),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Folders worth watching for changes: sources on connected local and
+    /// USB drives. Network shares are rescanned on a timer instead, since
+    /// change notifications over SMB are unreliable.
+    pub fn watch_targets(&self) -> Result<Vec<(i64, PathBuf)>> {
+        let roots = self.roots.read().unwrap_or_else(|e| e.into_inner()).clone();
+        Ok(self
+            .sources()?
+            .into_iter()
+            .filter(|s| s.volume_kind != volume::VolumeKind::Network)
+            .filter_map(|s| Some((s.id, volume::join(roots.get(&s.volume_key)?, &s.rel_path))))
+            .collect())
+    }
+
     /// Indexes every connected source. Blocks until done; run it on a
     /// background thread.
     pub fn scan(&self, ctl: &ScanControl, on_progress: &(dyn Fn(&ScanProgress) + Sync)) -> Result<ScanSummary> {
-        scanner::scan(self, ctl, on_progress)
+        scanner::scan(self, None, ctl, on_progress)
+    }
+
+    /// Like [`Library::scan`], limited to some sources.
+    pub fn scan_sources(
+        &self,
+        ids: &[i64],
+        ctl: &ScanControl,
+        on_progress: &(dyn Fn(&ScanProgress) + Sync),
+    ) -> Result<ScanSummary> {
+        scanner::scan(self, Some(ids), ctl, on_progress)
     }
 }
 
