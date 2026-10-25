@@ -21,3 +21,10 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo build --release -p lazee-viewer
+      # A self-contained exe to try out: the MSVC build links the WebView2
+      # loader statically, so no DLL has to sit next to it.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lazee-viewer-windows-x64
+          path: target/release/lazee-viewer.exe
+          if-no-files-found: error
