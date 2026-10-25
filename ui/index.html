@@ -43,6 +43,22 @@
     </div>
     <footer id="info"></footer>
   </main>
+  <div id="viewer" hidden tabindex="-1">
+    <img id="viewer-thumb" alt="" draggable="false">
+    <img id="viewer-full" alt="" draggable="false">
+    <p id="viewer-message" hidden></p>
+    <div id="viewer-bar">
+      <span id="viewer-title"></span>
+      <span id="viewer-zoom"></span>
+      <button id="viewer-fit" title="Fit to screen (0)">Fit</button>
+      <button id="viewer-actual" title="Actual size (1)">100%</button>
+      <button id="viewer-fullscreen" title="Full screen (F)">Full screen</button>
+      <button id="viewer-close" title="Back to the grid (Esc)">✕</button>
+    </div>
+    <button id="viewer-prev" class="nav" title="Previous (←)">‹</button>
+    <button id="viewer-next" class="nav" title="Next (→)">›</button>
+  </div>
   <script src="main.js"></script>
+  <script src="viewer.js"></script>
 </body>
 </html>
