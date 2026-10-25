@@ -1,0 +1,30 @@
+[package]
+name = "lazee-core"
+description = "Library indexing, metadata and thumbnails for Lazee Viewer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+log.workspace = true
+rusqlite = { version = "0.41", features = ["bundled"] }
+kamadak-exif = "0.6"
+jpeg-decoder = { version = "0.3", default-features = false }
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+blake3 = "1"
+rayon = "1"
+walkdir = "2"
+crossbeam-channel = "0.5"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_NetworkManagement_WNet",
+] }
+
+[dev-dependencies]
+tempfile = "3"
