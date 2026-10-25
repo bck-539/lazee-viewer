@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = ["crates/core", "app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+rust-version = "1.80"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+log = "0.4"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# Image decoding is painfully slow unoptimised, so keep it fast in debug builds too.
+[profile.dev.package."*"]
+opt-level = 3

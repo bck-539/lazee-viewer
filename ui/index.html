@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lazee Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside id="sidebar">
+    <h1>Lazee Viewer</h1>
+    <nav>
+      <button class="source active" data-source="">All photos</button>
+      <div id="sources"></div>
+    </nav>
+    <button id="add-source" class="primary">Add folder…</button>
+    <section id="scan">
+      <div class="scan-buttons">
+        <button id="scan-start">Scan for new photos</button>
+        <button id="scan-pause" hidden>Pause</button>
+        <button id="scan-cancel" hidden>Stop</button>
+      </div>
+      <progress id="scan-bar" hidden></progress>
+      <p id="scan-status"></p>
+    </section>
+  </aside>
+  <main>
+    <header id="toolbar">
+      <span id="count"></span>
+      <label>Sort
+        <select id="sort">
+          <option value="newest_first">Newest first</option>
+          <option value="oldest_first">Oldest first</option>
+          <option value="name">File name</option>
+          <option value="folder">Folder</option>
+        </select>
+      </label>
+      <label>Size <input id="zoom" type="range" min="100" max="320" step="10" value="180"></label>
+    </header>
+    <div id="grid" tabindex="0">
+      <div id="spacer"></div>
+      <p id="empty" hidden>No photos yet. Add a folder and scan it to start.</p>
+    </div>
+    <footer id="info"></footer>
+  </main>
+  <script src="main.js"></script>
+</body>
+</html>
