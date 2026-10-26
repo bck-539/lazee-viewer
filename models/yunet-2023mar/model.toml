@@ -1,0 +1,18 @@
+# Face detector. See crates/core/src/faces/pack.rs for the format.
+id = "yunet-2023mar"
+name = "YuNet (OpenCV Zoo, March 2023)"
+kind = "detector"
+file = "face_detection_yunet_2023mar.onnx"
+licence = "MIT"
+url = "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+sha256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
+
+[input]
+width = 640
+height = 640
+channels = "bgr"
+
+[output]
+format = "yunet"
+score_threshold = 0.8
+nms_iou = 0.3

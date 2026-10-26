@@ -3,10 +3,13 @@
 //! in this crate ever writes to the user's photo folders.
 
 pub mod db;
+pub mod faces;
+pub mod facescan;
 pub mod formats;
 pub mod hash;
 pub mod library;
 pub mod meta;
+pub mod people;
 pub mod raw;
 pub mod scanner;
 pub mod thumbs;

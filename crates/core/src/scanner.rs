@@ -44,7 +44,7 @@ impl ScanControl {
         self.paused.load(Ordering::Relaxed)
     }
     /// Blocks while paused. Returns false if the scan was cancelled.
-    fn checkpoint(&self) -> bool {
+    pub(crate) fn checkpoint(&self) -> bool {
         while self.is_paused() && !self.is_cancelled() {
             std::thread::sleep(Duration::from_millis(200));
         }

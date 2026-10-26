@@ -18,6 +18,11 @@ blake3 = "1"
 rayon = "1"
 walkdir = "2"
 crossbeam-channel = "0.5"
+toml = { version = "1", default-features = false, features = ["parse", "serde", "std"] }
+# ONNX Runtime is loaded at run time from a DLL shipped next to the app, so
+# builds need no native ONNX Runtime and the DLL can be swapped (CPU or
+# DirectML) without rebuilding.
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-20"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

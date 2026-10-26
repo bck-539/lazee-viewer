@@ -39,15 +39,33 @@ pub fn from_jpeg(data: &[u8], orientation: u8) -> Result<Thumbnail> {
     Ok(Thumbnail { jpeg, width: rgb.width(), height: rgb.height(), source_width, source_height })
 }
 
-/// Decodes a JPEG at the smallest DCT scale that still covers `edge` pixels.
+/// Decodes a JPEG at the smallest DCT scale that still covers `edge` pixels
+/// on its short side.
 pub fn decode_scaled(data: &[u8], edge: u32) -> Result<(DynamicImage, u32, u32)> {
+    decode_with(data, |w, h| (edge.min(w), edge.min(h)))
+}
+
+/// Decodes a JPEG at the smallest DCT scale that keeps at least `edge`
+/// pixels on its long side.
+pub fn decode_long_edge(data: &[u8], edge: u32) -> Result<(DynamicImage, u32, u32)> {
+    decode_with(data, |w, h| {
+        let long = w.max(h).max(1);
+        if long <= edge {
+            (w, h)
+        } else {
+            (((w as u64 * edge as u64) / long as u64) as u32, ((h as u64 * edge as u64) / long as u64) as u32)
+        }
+    })
+}
+
+fn decode_with(data: &[u8], request: impl Fn(u32, u32) -> (u32, u32)) -> Result<(DynamicImage, u32, u32)> {
     let mut dec = jpeg_decoder::Decoder::new(Cursor::new(data));
     dec.read_info().map_err(|e| Error::Decode(e.to_string()))?;
     let info = dec.info().ok_or_else(|| Error::Decode("missing JPEG header".into()))?;
     let (sw, sh) = (info.width as u32, info.height as u32);
-    let req = edge.min(u16::MAX as u32) as u16;
-    // Ask for `edge` on the short side so the long side keeps full detail.
-    let (w, h) = dec.scale(req.min(info.width), req.min(info.height)).map_err(|e| Error::Decode(e.to_string()))?;
+    let (rw, rh) = request(sw, sh);
+    let clamp = |v: u32| v.clamp(1, u16::MAX as u32) as u16;
+    let (w, h) = dec.scale(clamp(rw), clamp(rh)).map_err(|e| Error::Decode(e.to_string()))?;
     let pixels = dec.decode().map_err(|e| Error::Decode(e.to_string()))?;
     let (w, h) = (w as u32, h as u32);
     let bad = || Error::Decode("pixel buffer has the wrong size".into());

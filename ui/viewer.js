@@ -10,6 +10,7 @@ const viewer = $("#viewer");
 const vThumb = $("#viewer-thumb");
 const vFull = $("#viewer-full");
 const vMessage = $("#viewer-message");
+const vFaces = $("#viewer-faces");
 const { getCurrentWindow } = window.__TAURI__.window;
 
 const view = {
@@ -21,6 +22,7 @@ const view = {
   natW: 0,
   natH: 0,
   preload: [],
+  boxes: false, // show face boxes
   drag: null,
   swipe: null,
 };
@@ -67,6 +69,8 @@ function show(index) {
   vFull.style.visibility = "hidden";
   vFull.dataset.id = id;
   vFull.src = photoUrl(id);
+  vFaces.replaceChildren();
+  vFaces.hidden = true;
   $("#viewer-prev").hidden = index === 0;
   $("#viewer-next").hidden = index === state.ids.length - 1;
   updateTitle(id);
@@ -100,7 +104,37 @@ vFull.addEventListener("load", () => {
   fitToScreen();
   vFull.style.visibility = "visible";
   vThumb.hidden = true;
+  loadFaces(Number(vFull.dataset.id));
 });
+
+// ---------- Face boxes ----------
+
+async function loadFaces(id) {
+  vFaces.replaceChildren();
+  if (!view.boxes) return;
+  const faces = await invoke("photo_faces", { id });
+  if (String(id) !== vFull.dataset.id) return;
+  vFaces.replaceChildren(
+    ...faces.map((f) => {
+      const box = document.createElement("div");
+      box.className = "face";
+      box.style.left = `${f.x * 100}%`;
+      box.style.top = `${f.y * 100}%`;
+      box.style.width = `${f.w * 100}%`;
+      box.style.height = `${f.h * 100}%`;
+      return box;
+    }),
+  );
+  vFaces.hidden = false;
+  apply();
+}
+
+function toggleBoxes() {
+  view.boxes = !view.boxes;
+  $("#viewer-boxes").classList.toggle("on", view.boxes);
+  if (view.boxes && view.natW) loadFaces(Number(vFull.dataset.id));
+  else vFaces.hidden = true;
+}
 
 vFull.addEventListener("error", async () => {
   if (viewer.hidden || !vFull.getAttribute("src")) return;
@@ -134,6 +168,10 @@ function apply() {
   view.x = w <= vw ? (vw - w) / 2 : Math.min(0, Math.max(vw - w, view.x));
   view.y = h <= vh ? (vh - h) / 2 : Math.min(0, Math.max(vh - h, view.y));
   vFull.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+  // Face boxes sit on the photo, sized in screen pixels.
+  vFaces.style.transform = `translate(${view.x}px, ${view.y}px)`;
+  vFaces.style.width = `${w}px`;
+  vFaces.style.height = `${h}px`;
   const zoomed = w > vw + 1 || h > vh + 1;
   viewer.classList.toggle("zoomed", zoomed);
   viewer.classList.toggle("pixels", view.scale / actualScale() >= 3);
@@ -232,6 +270,7 @@ $("#viewer-next").addEventListener("click", () => show(view.index + 1));
 $("#viewer-fit").addEventListener("click", fitToScreen);
 $("#viewer-actual").addEventListener("click", () => zoomTo(actualScale()));
 $("#viewer-fullscreen").addEventListener("click", toggleFullscreen);
+$("#viewer-boxes").addEventListener("click", toggleBoxes);
 
 viewer.addEventListener("keydown", (e) => {
   const step = 80;
@@ -248,6 +287,7 @@ viewer.addEventListener("keydown", (e) => {
     Home: () => show(0),
     End: () => show(state.ids.length - 1),
     f: toggleFullscreen,
+    b: toggleBoxes,
     F11: toggleFullscreen,
     0: fitToScreen,
     1: () => zoomTo(actualScale()),

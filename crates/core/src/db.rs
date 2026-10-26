@@ -60,6 +60,45 @@ const SCHEMA: &[&str] = &[
     CREATE INDEX files_hash ON files(content_hash);
     CREATE INDEX files_stem ON files(folder_id, stem);
     "#,
+    // Version 2: settings and faces.
+    r#"
+    CREATE TABLE settings (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+    -- Which photos have been looked at for faces, with which models, and
+    -- which version of the file. A photo is looked at again when either
+    -- changes.
+    CREATE TABLE face_scans (
+        file_id      INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+        model        TEXT NOT NULL,
+        content_hash BLOB NOT NULL,
+        faces        INTEGER NOT NULL,
+        error        TEXT
+    );
+    -- Groups of faces that look like the same person, before anyone has
+    -- named them.
+    CREATE TABLE clusters (
+        id       INTEGER PRIMARY KEY,
+        centroid BLOB NOT NULL,
+        size     INTEGER NOT NULL DEFAULT 0,
+        hidden   INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE faces (
+        id         INTEGER PRIMARY KEY,
+        file_id    INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+        -- Box as fractions of the photo as displayed (after rotation).
+        x          REAL NOT NULL,
+        y          REAL NOT NULL,
+        w          REAL NOT NULL,
+        h          REAL NOT NULL,
+        score      REAL NOT NULL,
+        embedding  BLOB NOT NULL,
+        cluster_id INTEGER REFERENCES clusters(id) ON DELETE SET NULL
+    );
+    CREATE INDEX faces_file ON faces(file_id);
+    CREATE INDEX faces_cluster ON faces(cluster_id);
+    "#,
 ];
 
 const THUMBS_SCHEMA: &str = r#"
@@ -69,6 +108,10 @@ const THUMBS_SCHEMA: &str = r#"
         height       INTEGER NOT NULL,
         jpeg         BLOB NOT NULL
     ) WITHOUT ROWID;
+    CREATE TABLE IF NOT EXISTS thumbs.face_chips (
+        face_id INTEGER PRIMARY KEY,
+        jpeg    BLOB NOT NULL
+    );
 "#;
 
 /// Opens the index with the thumbnail store attached as `thumbs`, and brings

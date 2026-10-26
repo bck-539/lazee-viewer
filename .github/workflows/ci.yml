@@ -7,6 +7,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # ONNX Runtime ships next to the app; faces need 1.20 or newer.
+  ORT_VERSION: 1.23.2
 
 jobs:
   windows:
@@ -19,12 +21,37 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Fetch ONNX Runtime, face models and test photos
+        shell: bash
+        run: |
+          curl -sSfL -o ort.zip "https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-win-x64-$ORT_VERSION.zip"
+          7z x -y -bso0 ort.zip
+          mv "onnxruntime-win-x64-$ORT_VERSION" ort
+          scripts/fetch-models.sh
+          mkdir -p test-photos
+          for f in lena.jpg messi5.jpg; do
+            curl -sSfL -o "test-photos/$f" "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/$f"
+          done
+          echo "ORT_DYLIB_PATH=$PWD/ort/lib/onnxruntime.dll" >> "$GITHUB_ENV"
+          echo "LAZEE_FACE_PHOTOS=$PWD/test-photos" >> "$GITHUB_ENV"
       - run: cargo test --workspace
       - run: cargo build --release -p lazee-viewer
-      # A self-contained exe to try out: the MSVC build links the WebView2
-      # loader statically, so no DLL has to sit next to it.
+      - name: Put the app together
+        shell: bash
+        run: |
+          mkdir -p dist/models
+          cp target/release/lazee-viewer.exe ort/lib/onnxruntime.dll dist/
+          cp ort/LICENSE dist/onnxruntime-LICENSE.txt
+          cp ort/ThirdPartyNotices.txt dist/onnxruntime-ThirdPartyNotices.txt
+          cp LICENSE dist/LICENSE.txt
+          for d in models/*/; do
+            mkdir -p "dist/$d"
+            cp "$d"model.toml "$d"LICENSE "$d"*.onnx "dist/$d"
+          done
+      # The MSVC build links the WebView2 loader statically; ONNX Runtime and
+      # the face models sit next to the exe.
       - uses: actions/upload-artifact@v4
         with:
           name: lazee-viewer-windows-x64
-          path: target/release/lazee-viewer.exe
+          path: dist/
           if-no-files-found: error
