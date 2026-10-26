@@ -9,13 +9,16 @@ pub mod formats;
 pub mod hash;
 pub mod library;
 pub mod meta;
+pub mod naming;
 pub mod people;
 pub mod raw;
 pub mod scanner;
+pub mod tags;
+pub mod tagscan;
 pub mod thumbs;
 pub mod volume;
 
-pub use library::{FullImage, Library, PhotoInfo, PhotoList, SortOrder, Source};
+pub use library::{Filter, FullImage, Library, PhotoInfo, PhotoList, SortOrder, Source};
 pub use scanner::{ScanControl, ScanPhase, ScanProgress, ScanSummary};
 
 #[derive(Debug, thiserror::Error)]

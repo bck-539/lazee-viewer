@@ -9,7 +9,7 @@ use crate::faces::embed::{normalize, similarity};
 use crate::faces::{Engine, Found};
 use crate::library::Library;
 use crate::scanner::ScanControl;
-use crate::{raw, thumbs, volume, Result};
+use crate::{naming, raw, thumbs, volume, Result};
 use image::RgbImage;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
@@ -72,6 +72,13 @@ pub fn scan(
     let (todo, mut clusters) = {
         let conn = lib.writer();
         forget_other_models(&conn, &key)?;
+        // Suggestions need to be surer than "probably the same person".
+        let e = &engine.embedder;
+        let suggest = (e.match_threshold() + e.cluster_threshold()) / 2.0;
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('face_suggest_threshold', ?1)",
+            [suggest.to_string()],
+        )?;
         (load_todo(&conn, &key, &lib.roots_snapshot())?, Clusters::load(&conn, engine.embedder.cluster_threshold())?)
     };
     let total = todo.len() as u64;
@@ -123,7 +130,11 @@ pub fn scan(
         write(lib, &key, &mut batch, &mut clusters)
     })?;
 
-    tidy(&lib.writer())?;
+    {
+        let conn = lib.writer();
+        tidy(&conn)?;
+        naming::refresh(&conn)?;
+    }
     on_progress(&FaceProgress { done: summary.photos, total, faces: summary.faces });
     summary.cancelled = ctl.is_cancelled();
     Ok(summary)
@@ -168,7 +179,8 @@ fn write(lib: &Library, key: &str, batch: &mut Vec<Analyzed>, clusters: &mut Clu
 }
 
 /// Embeddings from different models can't be compared, so switching
-/// models starts the face data over.
+/// models starts the groups over. Faces stay until their photo is looked at
+/// again, so the names on them can be carried over to the new faces.
 fn forget_other_models(conn: &Connection, key: &str) -> Result<()> {
     let current: Option<String> =
         conn.query_row("SELECT value FROM settings WHERE key = 'face_models'", [], |r| r.get(0)).optional()?;
@@ -176,11 +188,9 @@ fn forget_other_models(conn: &Connection, key: &str) -> Result<()> {
         return Ok(());
     }
     if current.is_some() {
-        log::info!("face models changed from {current:?} to {key}; starting face data over");
+        log::info!("face models changed from {current:?} to {key}; looking at every photo again");
     }
-    conn.execute_batch(
-        "DELETE FROM faces; DELETE FROM clusters; DELETE FROM face_scans; DELETE FROM thumbs.face_chips;",
-    )?;
+    conn.execute("DELETE FROM clusters", [])?;
     conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('face_models', ?1)", [key])?;
     Ok(())
 }
@@ -194,7 +204,7 @@ fn load_todo(conn: &Connection, key: &str, roots: &HashMap<String, PathBuf>) -> 
          LEFT JOIN face_scans s ON s.file_id = f.id
          WHERE f.paired_with IS NULL AND f.error IS NULL
            AND (s.file_id IS NULL OR s.model != ?1 OR s.content_hash != f.content_hash)
-         ORDER BY f.sort_date DESC",
+         ORDER BY f.sort_date DESC, f.id",
     )?;
     let rows = stmt.query_map([key], |r| {
         Ok((
@@ -247,6 +257,7 @@ fn store(tx: &Connection, t: &Todo, key: &str, found: &[(Found, Vec<u8>)], clust
             clusters.shrink(c);
         }
     }
+    let names = naming::user_names(tx, t.file_id)?;
     tx.execute("DELETE FROM faces WHERE file_id = ?1", [t.file_id])?;
 
     for (f, chip) in found {
@@ -264,7 +275,8 @@ fn store(tx: &Connection, t: &Todo, key: &str, found: &[(Found, Vec<u8>)], clust
         "INSERT OR REPLACE INTO face_scans (file_id, model, content_hash, faces, error) VALUES (?1, ?2, ?3, ?4, NULL)",
         params![t.file_id, key, t.hash, found.len() as i64],
     )?;
-    Ok(())
+    naming::restore_names(tx, t.file_id, &names)?;
+    naming::link_file(tx, t.file_id)
 }
 
 fn store_error(tx: &Connection, t: &Todo, key: &str, error: &str) -> Result<()> {

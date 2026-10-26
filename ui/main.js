@@ -15,6 +15,7 @@ const state = {
   offline: new Set(),
   source: null,
   group: null,
+  person: null,
   sort: "newest_first",
   cellSize: 180,
   selected: null,
@@ -139,6 +140,8 @@ async function select(id) {
   if (info.taken_at) parts.push(info.taken_at.replace("T", " "));
   if (info.width && info.height) parts.push(`${info.width} × ${info.height}`);
   if (info.camera) parts.push(info.camera);
+  if (info.people.length) parts.push(info.people.join(", "));
+  if (info.keywords.length) parts.push(info.keywords.join(", "));
   parts.push(info.online ? info.folder : `${info.folder} (drive not connected)`);
   if (info.error) parts.push(`Could not read: ${info.error}`);
   $("#info").textContent = parts.join("  ·  ");
@@ -147,7 +150,8 @@ async function select(id) {
 // ---------- Library ----------
 
 async function loadPhotos({ keepScroll = false } = {}) {
-  const list = await invoke("photo_list", { sort: state.sort, source: state.source, group: state.group });
+  const filter = { source: state.source, group: state.group, person: state.person };
+  const list = await invoke("photo_list", { sort: state.sort, filter });
   state.ids = list.ids;
   state.offline = new Set(list.offline);
   $("#count").textContent = `${list.ids.length.toLocaleString()} photos`;
@@ -189,7 +193,7 @@ async function loadSources(sources) {
 $("#sidebar nav").addEventListener("click", (e) => {
   const b = e.target.closest(".source");
   if (!b || b.id === "people-nav") return;
-  state.group = null;
+  state.group = state.person = null;
   showGrid();
   state.source = b.dataset.source === "" ? null : Number(b.dataset.source);
   document.querySelectorAll(".source").forEach((x) => x.classList.toggle("active", x === b));
@@ -322,7 +326,19 @@ listen("faces-finished", ({ payload: [result, more] }) => {
   refreshPeople();
 });
 
-listen("scan-finished", async ({ payload: [result, more] }) => {
+listen("tags-started", () => {
+  $("#scan-status").textContent = "Reading name tags and keywords…";
+});
+
+listen("tag-progress", ({ payload: p }) => {
+  const bar = $("#scan-bar");
+  bar.max = Math.max(1, p.total);
+  bar.value = p.done;
+  $("#scan-status").textContent =
+    `Reading name tags and keywords: ${p.done.toLocaleString()} of ${p.total.toLocaleString()}`;
+});
+
+listen("scan-finished", async ({ payload: [result, more, tags] }) => {
   const payload = result;
   if (!more) setScanning(false);
   if (payload.Err) {
@@ -338,9 +354,12 @@ listen("scan-finished", async ({ payload: [result, more] }) => {
     let text = s.cancelled ? "Scan stopped. " : "Scan finished. ";
     text += bits.length ? bits.join(", ") + "." : "Nothing changed.";
     if (s.offline.length) text += ` Not connected: ${s.offline.join(", ")}.`;
+    if (tags?.Ok?.people) text += ` ${tags.Ok.people.toLocaleString()} new people from name tags.`;
+    if (tags?.Err) text += ` Could not read tags: ${tags.Err}`;
     $("#scan-status").textContent = text;
   }
   await Promise.all([loadSources(), loadPhotos({ keepScroll: true })]);
+  refreshPeople();
 });
 
 // ---------- Start ----------

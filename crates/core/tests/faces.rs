@@ -62,7 +62,12 @@ fn finds_and_groups_faces() {
     assert_eq!(lena_a[0].group, lena_b[0].group);
     assert!(messi.iter().all(|f| f.group != lena_a[0].group));
     let lena_group = lena_a[0].group.unwrap();
-    assert_eq!(lib.photos_of(SortOrder::Name, None, Some(lena_group)).unwrap().ids, vec![ids[0], ids[1]]);
+    assert_eq!(
+        lib.photos_of(SortOrder::Name, &lazee_core::Filter { group: Some(lena_group), ..Default::default() })
+            .unwrap()
+            .ids,
+        vec![ids[0], ids[1]]
+    );
     let groups = lib.groups(2).unwrap();
     assert_eq!(groups[0].id, lena_group);
     assert_eq!(groups[0].photos, 2);

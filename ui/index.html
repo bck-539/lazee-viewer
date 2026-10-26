@@ -11,7 +11,7 @@
     <h1>Lazee Viewer</h1>
     <nav>
       <button class="source active" data-source="">All photos</button>
-      <button id="people-nav" class="source" hidden>People</button>
+      <button id="people-nav" class="source">People</button>
       <div id="sources"></div>
     </nav>
     <button id="add-source" class="primary">Add folder…</button>
@@ -28,7 +28,11 @@
   </aside>
   <main>
     <header id="toolbar">
-      <button id="back-to-people" hidden title="Back to People">‹ People</button>
+      <span id="person-bar" hidden>
+        <button id="person-back" title="Back to People">‹ People</button>
+        <strong id="person-title"></strong>
+        <span id="person-actions"></span>
+      </span>
       <span id="count"></span>
       <label>Sort
         <select id="sort">
@@ -44,10 +48,7 @@
       <div id="spacer"></div>
       <p id="empty" hidden>No photos yet. Add a folder and scan it to start.</p>
     </div>
-    <div id="people" hidden tabindex="0">
-      <p id="people-empty" hidden></p>
-      <div id="people-list"></div>
-    </div>
+    <div id="people" hidden tabindex="0"></div>
     <footer id="info"></footer>
   </main>
   <div id="viewer" hidden tabindex="-1">
@@ -86,6 +87,21 @@
       <div class="buttons">
         <button value="cancel">Cancel</button>
         <button id="faces-save" class="primary" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="name-dialog">
+    <form method="dialog">
+      <h2 id="name-title"></h2>
+      <img id="name-chip" class="avatar big" alt="" hidden>
+      <input id="name-input" list="people-names" autocomplete="off" placeholder="Name">
+      <datalist id="people-names"></datalist>
+      <p id="name-note" class="note" hidden></p>
+      <div class="buttons">
+        <button id="name-extra" value="extra" hidden></button>
+        <span class="spacer"></span>
+        <button value="cancel">Cancel</button>
+        <button value="save" class="primary">Save</button>
       </div>
     </form>
   </dialog>

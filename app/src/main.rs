@@ -3,9 +3,10 @@
 
 mod background;
 mod faces;
+mod people;
 
 use lazee_core::people::{FaceBox, Group};
-use lazee_core::{FullImage, Library, PhotoInfo, PhotoList, SortOrder, Source};
+use lazee_core::{Filter, FullImage, Library, PhotoInfo, PhotoList, SortOrder, Source};
 use std::sync::Arc;
 use tauri::http::{header, Response, StatusCode};
 use tauri::{AppHandle, Manager, State};
@@ -59,13 +60,8 @@ fn remove_source(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<(
 }
 
 #[tauri::command]
-fn photo_list(
-    state: State<AppState>,
-    sort: SortOrder,
-    source: Option<i64>,
-    group: Option<i64>,
-) -> CmdResult<PhotoList> {
-    state.lib.photos_of(sort, source, group).map_err(err)
+fn photo_list(state: State<AppState>, sort: SortOrder, filter: Filter) -> CmdResult<PhotoList> {
+    state.lib.photos_of(sort, &filter).map_err(err)
 }
 
 #[tauri::command]
@@ -265,6 +261,16 @@ fn main() {
             face_groups,
             face_setup,
             set_faces,
+            people::people,
+            people::suggestions,
+            people::name_group,
+            people::name_face,
+            people::unname_face,
+            people::accept_suggestion,
+            people::reject_suggestion,
+            people::rename_person,
+            people::merge_people,
+            people::delete_person,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lazee Viewer");
