@@ -4,6 +4,7 @@
 
 use crate::{faces, AppState};
 use lazee_core::facescan::FaceProgress;
+use lazee_core::tagscan::TagProgress;
 use lazee_core::{ScanControl, ScanProgress};
 use notify::{EventKind, RecursiveMode, Watcher};
 use std::collections::{BTreeSet, HashSet};
@@ -107,11 +108,19 @@ fn run_scans(app: AppHandle, mut ctl: Arc<ScanControl>, mut which: Option<Vec<i6
         }
         .map_err(|e| e.to_string());
 
-        // After the files are up to date, look for faces in new photos,
-        // unless the user stopped the scan.
+        // Then read the names and keywords other programs saved in new
+        // photos, and look for faces in them, unless the user stopped the
+        // scan.
+        let tags = (!ctl.is_cancelled()).then(|| {
+            let _ = app.emit("tags-started", ());
+            let on_progress = throttled(|p: &TagProgress| {
+                let _ = app.emit("tag-progress", p);
+            });
+            lazee_core::tagscan::scan(&state.lib, &ctl, &on_progress).map_err(|e| e.to_string())
+        });
         let find_faces = !ctl.is_cancelled() && faces::enabled(&state.lib);
         let next = take_next(&state, find_faces);
-        let _ = app.emit("scan-finished", (result, next.is_some() || find_faces));
+        let _ = app.emit("scan-finished", (result, next.is_some() || find_faces, tags));
         if let Some(n) = next {
             which = n;
             ctl = new_control(&state);

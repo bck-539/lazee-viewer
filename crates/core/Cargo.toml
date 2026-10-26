@@ -23,6 +23,7 @@ toml = { version = "1", default-features = false, features = ["parse", "serde", 
 # builds need no native ONNX Runtime and the DLL can be swapped (CPU or
 # DirectML) without rebuilding.
 ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-20"] }
+quick-xml = "0.38"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

@@ -8,9 +8,9 @@ telemetry.
 Built for big libraries on modest hardware: 200,000+ JPEG and RAW photos
 spread over internal disks, USB drives and a NAS.
 
-> **Status:** early development. Library indexing, the thumbnail grid, the
-> full-screen viewer and face finding are in place; naming people comes
-> next. See the [roadmap](#roadmap).
+> **Status:** early development. Library indexing, the viewer, face
+> finding, naming people and importing existing name tags are in place;
+> search comes next. See the [roadmap](#roadmap).
 
 ## What works today
 
@@ -44,6 +44,18 @@ spread over internal disks, USB drives and a NAS.
   photo of that person. `B` in the viewer shows the face boxes. The face
   scan pauses and stops with the file scan, and turning faces off deletes
   all face data.
+- Tags you already have are read on every scan, without changing the
+  files: people tagged in Windows Photo Gallery (with their face areas),
+  Metadata Working Group face regions (Lightroom, digiKam and others),
+  IrfanView's IPTC keywords and captions, JPEG comments, Windows keywords,
+  and `.xmp` sidecars next to RAW files. Tagged names become people, and a
+  name with a face area goes on the face found there.
+- Naming people: type a name on an unnamed group, or click a face in the
+  viewer to name or correct it. Faces that look like someone you named are
+  suggested; *Review suggestions* asks "Is this them?" with Yes and No.
+  "No" is remembered, so a face is never suggested as that person again.
+  Renaming someone to another person's name merges the two. Names you
+  give survive a photo being rescanned, or a switch of face models.
 
 ## Face models are plug-ins
 
@@ -123,8 +135,9 @@ The library lives in `%LOCALAPPDATA%\io.github.bck539.lazeeviewer`:
 3. **Face model spike** (done): YuNet + SFace, run from Rust, as plug-ins.
 4. **Faces** (done): background detection, embeddings, unnamed groups, face
    boxes, People page.
-5. **People:** import names from Windows Photo Gallery and IrfanView; name,
-   merge and split people; auto-tagging with a review queue.
+5. **People** (done): import names from Windows Photo Gallery and
+   IrfanView; name, merge and correct people; suggestions with a review
+   queue.
 6. **Search:** people with AND/OR, date and folder filters, timeline,
    optional XMP write-back (off by default).
 

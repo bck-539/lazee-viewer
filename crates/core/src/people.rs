@@ -14,6 +14,10 @@ pub struct FaceBox {
     pub w: f64,
     pub h: f64,
     pub group: Option<i64>,
+    pub person_id: Option<i64>,
+    pub person: Option<String>,
+    /// The name is only a suggestion, waiting for review.
+    pub suggested: bool,
 }
 
 /// A group of faces that look like the same person.
@@ -39,22 +43,50 @@ pub struct FaceStats {
 impl Library {
     pub fn photo_faces(&self, file_id: i64) -> Result<Vec<FaceBox>> {
         let conn = self.reader();
-        let mut stmt =
-            conn.prepare_cached("SELECT id, x, y, w, h, cluster_id FROM faces WHERE file_id = ?1 ORDER BY x")?;
+        let mut stmt = conn.prepare_cached(
+            "SELECT f.id, f.x, f.y, f.w, f.h, f.cluster_id, f.person_id, p.name, f.person_source = 'auto'
+             FROM faces f LEFT JOIN people p ON p.id = f.person_id
+             WHERE f.file_id = ?1 ORDER BY f.x",
+        )?;
         let rows = stmt.query_map([file_id], |r| {
-            Ok(FaceBox { id: r.get(0)?, x: r.get(1)?, y: r.get(2)?, w: r.get(3)?, h: r.get(4)?, group: r.get(5)? })
+            Ok(FaceBox {
+                id: r.get(0)?,
+                x: r.get(1)?,
+                y: r.get(2)?,
+                w: r.get(3)?,
+                h: r.get(4)?,
+                group: r.get(5)?,
+                person_id: r.get(6)?,
+                person: r.get(7)?,
+                suggested: r.get::<_, Option<bool>>(8)?.unwrap_or(false),
+            })
         })?;
         Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 
-    /// Groups with at least `min_faces` faces, biggest first.
+    /// People named in a photo's tags but not on any face found in it,
+    /// such as a name without a face area.
+    pub fn photo_tag_people(&self, file_id: i64) -> Result<Vec<(i64, String)>> {
+        let conn = self.reader();
+        let mut stmt = conn.prepare_cached(
+            "SELECT DISTINCT p.id, p.name FROM tags t JOIN people p ON p.id = t.person_id
+             WHERE t.file_id = ?1 AND NOT EXISTS
+                (SELECT 1 FROM faces f WHERE f.file_id = ?1 AND f.person_id = p.id AND f.person_source != 'auto')",
+        )?;
+        let rows = stmt.query_map([file_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    /// Groups of unnamed faces with at least `min_faces` faces, biggest
+    /// first. Groups that are someone, or suggested as someone, are not
+    /// listed.
     pub fn groups(&self, min_faces: i64) -> Result<Vec<Group>> {
         let conn = self.reader();
         let mut stmt = conn.prepare_cached(
             "SELECT c.id, count(*), count(DISTINCT f.file_id),
-                    (SELECT id FROM faces WHERE cluster_id = c.id ORDER BY score * w DESC LIMIT 1)
-             FROM clusters c JOIN faces f ON f.cluster_id = c.id
-             WHERE c.hidden = 0
+                    (SELECT id FROM faces WHERE cluster_id = c.id AND person_id IS NULL ORDER BY score * w DESC LIMIT 1)
+             FROM clusters c JOIN faces f ON f.cluster_id = c.id AND f.person_id IS NULL
+             WHERE c.hidden = 0 AND c.person_id IS NULL
              GROUP BY c.id HAVING count(*) >= ?1
              ORDER BY count(*) DESC, c.id",
         )?;

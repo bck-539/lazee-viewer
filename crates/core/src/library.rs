@@ -41,6 +41,17 @@ pub enum SortOrder {
     Folder,
 }
 
+/// Which photos to list. Empty means all of them.
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct Filter {
+    /// Only this source folder.
+    pub source: Option<i64>,
+    /// Only photos with an unnamed face from this group of look-alikes.
+    pub group: Option<i64>,
+    /// Only photos of this person.
+    pub person: Option<i64>,
+}
+
 /// Everything the grid needs: photo ids in display order, plus the ids
 /// whose drive is not connected (shown greyed out).
 #[derive(Debug, Clone, Default, serde::Serialize)]
@@ -64,6 +75,10 @@ pub struct PhotoInfo {
     pub gps: Option<(f64, f64)>,
     pub online: bool,
     pub error: Option<String>,
+    /// Everyone named in the photo, by face or by tag.
+    pub people: Vec<String>,
+    /// Keywords saved in the photo by other programs.
+    pub keywords: Vec<String>,
 }
 
 /// The full-size image for the viewer.
@@ -222,12 +237,13 @@ impl Library {
     /// Photo ids in display order, optionally limited to one source. RAW
     /// files with a JPEG of the same name appear once, as the JPEG.
     pub fn photo_list(&self, sort: SortOrder, source: Option<i64>) -> Result<PhotoList> {
-        self.photos_of(sort, source, None)
+        self.photos_of(sort, &Filter { source, ..Filter::default() })
     }
 
-    /// Like [`Library::photo_list`], optionally limited to photos with a
-    /// face from one group of look-alikes.
-    pub fn photos_of(&self, sort: SortOrder, source: Option<i64>, group: Option<i64>) -> Result<PhotoList> {
+    /// Like [`Library::photo_list`], limited to the photos the filter
+    /// lets through.
+    pub fn photos_of(&self, sort: SortOrder, filter: &Filter) -> Result<PhotoList> {
+        let (source, group, person) = (filter.source, filter.group, filter.person);
         let order = match sort {
             SortOrder::NewestFirst => "f.sort_date DESC, f.name",
             SortOrder::OldestFirst => "f.sort_date ASC, f.name",
@@ -242,13 +258,17 @@ impl Library {
              WHERE f.paired_with IS NULL
                AND (?1 IS NULL OR (fo.volume_id = s.volume_id AND (s.rel_path = '' OR fo.rel_path = s.rel_path
                     OR substr(fo.rel_path, 1, length(s.rel_path) + 1) = s.rel_path || '/' COLLATE NOCASE)))
-               AND (?2 IS NULL OR EXISTS (SELECT 1 FROM faces WHERE file_id = f.id AND cluster_id = ?2))
+               AND (?2 IS NULL OR EXISTS (SELECT 1 FROM faces WHERE file_id = f.id AND cluster_id = ?2
+                                           AND person_id IS NULL))
+               AND (?3 IS NULL OR EXISTS (SELECT 1 FROM faces WHERE file_id = f.id AND person_id = ?3
+                                           AND person_source != 'auto')
+                    OR EXISTS (SELECT 1 FROM tags WHERE file_id = f.id AND person_id = ?3))
              ORDER BY {order}"
         );
         let roots = self.roots.read().unwrap_or_else(|e| e.into_inner()).clone();
         let conn = self.reader();
         let mut stmt = conn.prepare_cached(&sql)?;
-        let mut rows = stmt.query([source, group])?;
+        let mut rows = stmt.query([source, group, person])?;
         let mut list = PhotoList::default();
         while let Some(r) = rows.next()? {
             let id: i64 = r.get(0)?;
@@ -293,12 +313,27 @@ impl Library {
                             gps: lat.zip(lon),
                             online: false,
                             error: r.get(13)?,
+                            people: Vec::new(),
+                            keywords: Vec::new(),
                         },
                     ))
                 },
             )
             .optional()?;
         let Some((name, rel_dir, key, label, mut info)) = row else { return Ok(None) };
+        let strings = |sql: &str| -> Result<Vec<String>> {
+            let mut stmt = conn.prepare_cached(sql)?;
+            let rows = stmt.query_map([id], |r| r.get(0))?;
+            Ok(rows.collect::<std::result::Result<_, _>>()?)
+        };
+        info.people = strings(
+            "SELECT p.name FROM people p WHERE p.id IN (
+                SELECT person_id FROM faces WHERE file_id = ?1 AND person_source != 'auto'
+                UNION SELECT person_id FROM tags WHERE file_id = ?1)
+             ORDER BY p.name",
+        )?;
+        info.keywords =
+            strings("SELECT DISTINCT value FROM tags WHERE file_id = ?1 AND kind = 'keyword' ORDER BY value")?;
         match self.root_of(&key) {
             Some(root) => {
                 let folder = volume::join(&root, &rel_dir);

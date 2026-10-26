@@ -91,6 +91,7 @@ async function updateTitle(id) {
   const parts = [info.name];
   if (info.taken_at) parts.push(info.taken_at.replace("T", " "));
   if (info.camera) parts.push(info.camera);
+  if (info.people.length) parts.push(info.people.join(", "));
   $("#viewer-title").textContent = parts.join("  ·  ");
   $("#viewer-title").title = info.folder;
 }
@@ -117,11 +118,25 @@ async function loadFaces(id) {
   vFaces.replaceChildren(
     ...faces.map((f) => {
       const box = document.createElement("div");
-      box.className = "face";
+      box.className = "face" + (f.suggested ? " suggested" : f.person ? " named" : "");
       box.style.left = `${f.x * 100}%`;
       box.style.top = `${f.y * 100}%`;
       box.style.width = `${f.w * 100}%`;
       box.style.height = `${f.h * 100}%`;
+      box.title = f.person ? (f.suggested ? `${f.person}? Click to confirm or correct` : f.person) : "Click to name";
+      if (f.person) {
+        const label = document.createElement("span");
+        label.textContent = f.suggested ? `${f.person}?` : f.person;
+        box.appendChild(label);
+      }
+      box.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (await editFace(f)) {
+          loadFaces(id);
+          updateTitle(id);
+        }
+        viewer.focus();
+      });
       return box;
     }),
   );
@@ -215,12 +230,12 @@ viewer.addEventListener(
 );
 
 viewer.addEventListener("dblclick", (e) => {
-  if (e.target.closest("button")) return;
+  if (e.target.closest("button, .face")) return;
   toggleActual(e.clientX, e.clientY);
 });
 
 viewer.addEventListener("pointerdown", (e) => {
-  if (e.target.closest("button")) return;
+  if (e.target.closest("button, .face")) return;
   viewer.setPointerCapture(e.pointerId);
   if (viewer.classList.contains("zoomed")) {
     view.drag = { x: e.clientX - view.x, y: e.clientY - view.y };
@@ -273,6 +288,7 @@ $("#viewer-fullscreen").addEventListener("click", toggleFullscreen);
 $("#viewer-boxes").addEventListener("click", toggleBoxes);
 
 viewer.addEventListener("keydown", (e) => {
+  if (nameDialog.open) return;
   const step = 80;
   const keys = {
     Escape: closeViewer,

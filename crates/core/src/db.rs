@@ -99,6 +99,48 @@ const SCHEMA: &[&str] = &[
     CREATE INDEX faces_file ON faces(file_id);
     CREATE INDEX faces_cluster ON faces(cluster_id);
     "#,
+    // Version 3: people and tags read from the photos.
+    r#"
+    CREATE TABLE people (
+        id         INTEGER PRIMARY KEY,
+        name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S', 'now'))
+    );
+    -- Who a face is, and who said so: 'user' (named in the app), 'import'
+    -- (a name tag already in the photo) or 'auto' (a suggestion to review).
+    ALTER TABLE faces ADD COLUMN person_id INTEGER REFERENCES people(id) ON DELETE SET NULL;
+    ALTER TABLE faces ADD COLUMN person_source TEXT;
+    CREATE INDEX faces_person ON faces(person_id);
+    -- The person most of a group's named faces belong to.
+    ALTER TABLE clusters ADD COLUMN person_id INTEGER REFERENCES people(id) ON DELETE SET NULL;
+    -- "This is not that person", so it is never suggested again.
+    CREATE TABLE face_rejects (
+        face_id   INTEGER NOT NULL REFERENCES faces(id) ON DELETE CASCADE,
+        person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+        PRIMARY KEY (face_id, person_id)
+    ) WITHOUT ROWID;
+    -- Tags found in the photos' own metadata: people (with a face area
+    -- when the tagging program saved one), keywords and captions.
+    CREATE TABLE tags (
+        id        INTEGER PRIMARY KEY,
+        file_id   INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+        kind      TEXT NOT NULL,
+        value     TEXT NOT NULL,
+        source    TEXT NOT NULL,
+        x REAL, y REAL, w REAL, h REAL,
+        person_id INTEGER REFERENCES people(id) ON DELETE SET NULL,
+        face_id   INTEGER REFERENCES faces(id) ON DELETE SET NULL
+    );
+    CREATE INDEX tags_file ON tags(file_id);
+    CREATE INDEX tags_value ON tags(kind, value COLLATE NOCASE);
+    CREATE INDEX tags_person ON tags(person_id);
+    -- Which version of each file its tags were read from.
+    CREATE TABLE tag_scans (
+        file_id      INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+        content_hash BLOB NOT NULL,
+        error        TEXT
+    );
+    "#,
 ];
 
 const THUMBS_SCHEMA: &str = r#"
