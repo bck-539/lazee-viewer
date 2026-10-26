@@ -115,7 +115,7 @@ fn photo_faces(state: State<AppState>, id: i64) -> CmdResult<Vec<FaceBox>> {
 /// are left out; they are mostly strangers in the background.
 #[tauri::command]
 fn face_groups(state: State<AppState>) -> CmdResult<Vec<Group>> {
-    state.lib.groups(2).map_err(err)
+    state.lib.groups(people::MIN_GROUP).map_err(err)
 }
 
 #[tauri::command]
@@ -283,6 +283,13 @@ fn main() {
             people::rename_person,
             people::merge_people,
             people::delete_person,
+            people::name_faces,
+            people::unname_faces,
+            people::faces_of,
+            people::same_person_questions,
+            people::merge_groups,
+            people::same_person,
+            people::not_same_person,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lazee Viewer");

@@ -11,6 +11,14 @@ spread over internal disks, USB drives and a NAS.
 > **Status:** first complete version. Every milestone on the
 > [roadmap](#roadmap) is in place; expect rough edges.
 
+## Download
+
+Get the latest `lazee-viewer-…-windows-x64.zip` from
+[Releases](https://github.com/bck-539/lazee-viewer/releases), unzip it
+anywhere and run `lazee-viewer.exe`. It needs the Microsoft Edge WebView2
+runtime, which Windows 10 and 11 already have. The exe isn't code-signed
+yet, so Windows SmartScreen may ask you to confirm the first start.
+
 ## What works today
 
 - Add folders on internal drives, USB drives and network shares (UNC paths
@@ -55,6 +63,12 @@ spread over internal disks, USB drives and a NAS.
   "No" is remembered, so a face is never suggested as that person again.
   Renaming someone to another person's name merges the two. Names you
   give survive a photo being rescanned, or a switch of face models.
+- One person in several groups: *People* asks "Are these the same
+  person?" about groups that look alike, or "Is this Anna?" about a group
+  that looks like someone named. *Merge people…* puts any groups and
+  people you pick together. *Pick faces…* on a person or group lets you
+  pick single faces (Shift+click for a range) and move them to someone
+  else, or take them out.
 - Search: the search box matches people, folders, file names, keywords
   and captions; every word must match. *Filters* picks people (all of
   them in one photo, or any of them) and a date range.

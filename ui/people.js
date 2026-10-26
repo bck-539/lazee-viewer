@@ -78,7 +78,12 @@ async function loadNames() {
 async function refreshPeople() {
   if (peopleView.hidden) return;
   if (peopleView.dataset.view === "review") return showReview();
-  const [people, groups] = await Promise.all([loadNames(), invoke("face_groups")]);
+  if (peopleView.dataset.view === "faces") return;
+  const [people, groups, questions] = await Promise.all([
+    loadNames(),
+    invoke("face_groups"),
+    invoke("same_person_questions").catch(() => []),
+  ]).then(([p, g, q]) => [p, g, q.filter((x) => !skipped.has(`${x.group}:${x.other_group ?? "p" + x.person_id}`))]);
   const pending = people.reduce((n, p) => n + p.suggestions, 0);
   $("#count").textContent = `${people.length.toLocaleString()} named, ${groups.length.toLocaleString()} not named yet`;
 
@@ -93,6 +98,8 @@ async function refreshPeople() {
     b.addEventListener("click", () => showReview());
     parts.push(b);
   }
+  if (questions.length) parts.push(questionCard(questions));
+  if (people.length + groups.length > 1) parts.push(mergeBar());
   if (people.length) {
     parts.push(el("h2", { textContent: "People" }));
     parts.push(
@@ -109,7 +116,7 @@ async function refreshPeople() {
           );
           if (p.suggestions)
             b.append(el("span", { className: "badge", textContent: p.suggestions, title: "Suggestions to review" }));
-          b.addEventListener("click", () => openPerson(p));
+          b.addEventListener("click", () => (merging ? pick(b, { person: p }) : openPerson(p)));
           return b;
         }),
       ),
@@ -128,7 +135,7 @@ async function refreshPeople() {
             avatar(g.cover),
             el("span", { className: "n", textContent: `${g.photos.toLocaleString()} photos` }),
           );
-          b.addEventListener("click", () => openGroup(g));
+          b.addEventListener("click", () => (merging ? pick(b, { group: g }) : openGroup(g)));
           return b;
         }),
       ),
@@ -145,6 +152,139 @@ async function refreshPeople() {
     );
   }
   peopleView.replaceChildren(...parts);
+  peopleView.classList.toggle("merging", merging);
+}
+
+// ---------- Same person? ----------
+
+/// Asks about one pair of look-alike groups at a time.
+function questionCard(questions) {
+  const q = questions[0];
+  const chips = (faces) => el("div", { className: "chips" }, ...faces.map((f) => avatar(f)));
+  const yes = el("button", { className: "primary", textContent: q.name ? `Yes, ${q.name}` : "Yes, same person" });
+  const no = el("button", { textContent: "No" });
+  const later = el("button", { textContent: "Ask later" });
+  const card = el(
+    "div",
+    { className: "same-person" },
+    el(
+      "div",
+      { className: "q-head" },
+      el("h2", { textContent: q.name ? `Is this ${q.name}?` : "Are these the same person?" }),
+      el("span", { className: "n", textContent: questions.length > 1 ? `${questions.length} questions` : "" }),
+    ),
+    el(
+      "div",
+      { className: "q-sides" },
+      el(
+        "div",
+        { className: "q-side" },
+        chips(q.faces),
+        el("span", { className: "n", textContent: `${q.photos.toLocaleString()} photos` }),
+      ),
+      el("span", { className: "q-and", textContent: q.name ? "=" : "&" }),
+      el(
+        "div",
+        { className: "q-side" },
+        chips(q.other_faces),
+        el("span", {
+          className: "n",
+          textContent: (q.name ? `${q.name}, ` : "") + `${q.other_photos.toLocaleString()} photos`,
+        }),
+      ),
+    ),
+    el("div", { className: "answer" }, yes, no, later),
+  );
+  const args = { group: q.group, otherGroup: q.other_group, person: q.person_id };
+  const answer = async (cmd) => {
+    card.classList.add("done");
+    yes.disabled = no.disabled = later.disabled = true;
+    if (cmd) await invoke(cmd, args).catch((e) => alert(e));
+    else skipped.add(`${q.group}:${q.other_group ?? "p" + q.person_id}`);
+    refreshPeople();
+  };
+  yes.addEventListener("click", () => answer("same_person"));
+  no.addEventListener("click", () => answer("not_same_person"));
+  later.addEventListener("click", () => answer(null));
+  return card;
+}
+
+/// Questions put off with "Ask later", until the app is restarted.
+const skipped = new Set();
+
+// ---------- Merging ----------
+
+let merging = false;
+const picked = new Map();
+
+function pick(button, item) {
+  const key = item.person ? `p${item.person.id}` : `g${item.group.id}`;
+  if (picked.has(key)) picked.delete(key);
+  else picked.set(key, item);
+  button.classList.toggle("picked", picked.has(key));
+  updateMergeBar();
+}
+
+function mergeBar() {
+  const start = el("button", { textContent: "Merge people…", title: "Pick people and groups that are one person" });
+  const go = el("button", { className: "primary", id: "merge-go", textContent: "Merge" });
+  const cancel = el("button", { textContent: "Cancel" });
+  const label = el("span", { id: "merge-label" });
+  start.addEventListener("click", () => {
+    merging = true;
+    picked.clear();
+    refreshPeople();
+  });
+  cancel.addEventListener("click", () => {
+    merging = false;
+    picked.clear();
+    refreshPeople();
+  });
+  go.addEventListener("click", mergePicked);
+  const bar = merging
+    ? el("div", { className: "merge-bar active" }, label, el("span", { className: "spacer" }), go, cancel)
+    : el("div", { className: "merge-bar" }, el("span", { className: "spacer" }), start);
+  queueMicrotask(updateMergeBar);
+  return bar;
+}
+
+function updateMergeBar() {
+  const label = $("#merge-label");
+  if (!label) return;
+  label.textContent = picked.size
+    ? `${picked.size} picked. Pick everyone who is the same person, then Merge.`
+    : "Click the people and groups that are the same person.";
+  $("#merge-go").disabled = picked.size < 2;
+}
+
+async function mergePicked() {
+  const items = [...picked.values()];
+  const named = items.filter((i) => i.person).map((i) => i.person);
+  const groups = items.filter((i) => i.group).map((i) => i.group.id);
+  let name = null;
+  if (named.length === 1) name = named[0].name;
+  else {
+    const r = await askName({
+      title: named.length ? "Which name should they have?" : "Who is this?",
+      value: named[0]?.name ?? "",
+      note: named.length ? `Now named ${named.map((p) => p.name).join(", ")}.` : "",
+      extra: named.length ? null : "Merge without a name",
+    });
+    if (r.action === "save" && r.name.trim()) name = r.name;
+    else if (r.action !== "extra") return;
+  }
+  try {
+    for (const p of named) await invoke("rename_person", { person: p.id, name });
+    if (groups.length) {
+      const keep = groups.length > 1 ? await invoke("merge_groups", { groups }) : groups[0];
+      if (name) await invoke("name_group", { group: keep, name });
+    }
+  } catch (e) {
+    alert(e);
+  }
+  merging = false;
+  picked.clear();
+  refreshPeople();
 }
 
 async function openGroup(g) {
@@ -169,7 +309,7 @@ async function openGroup(g) {
   };
   save.addEventListener("click", submit);
   input.addEventListener("keydown", (e) => e.key === "Enter" && submit());
-  personBar("Unnamed person", input, save);
+  personBar("Unnamed person", input, save, pickFacesButton({ group: g.id }, "Unnamed person"));
   input.focus();
 }
 
@@ -201,7 +341,7 @@ async function openPerson(p) {
     await invoke("delete_person", { person: p.id }).catch((e) => alert(e));
     showPeople();
   });
-  const actions = [rename, forget];
+  const actions = [rename, forget, pickFacesButton({ person: p.id }, p.name, p)];
   if (p.suggestions) {
     const review = el("button", { className: "primary", textContent: `Review ${p.suggestions} suggestions` });
     review.addEventListener("click", () => showReview(p.id));
@@ -215,6 +355,95 @@ function personBar(title, ...actions) {
   $("#person-actions").replaceChildren(...actions);
   $("#count").textContent = `${state.ids.length.toLocaleString()} photos`;
   setToolbar("photos");
+}
+
+// ---------- Picking faces ----------
+
+function pickFacesButton(of, title, person = null) {
+  const b = el("button", { textContent: "Pick faces…", title: "Move single faces to someone else" });
+  b.addEventListener("click", () => showFaces(of, title, person));
+  return b;
+}
+
+/// Every face of a group or person, to move some of them to someone else.
+async function showFaces(of, title, person = null) {
+  const back = () => (person ? openPerson(person) : openGroup({ id: of.group }));
+  const faces = await invoke("faces_of", { group: of.group ?? null, person: of.person ?? null });
+  if (!faces.length) return showPeople();
+  showPeopleView();
+  state.group = of.group ?? null;
+  state.person = of.person ?? null;
+  peopleView.dataset.view = "faces";
+  const chosen = new Set();
+  let last = -1;
+  const backBtn = el("button", { textContent: "‹ Photos" });
+  backBtn.addEventListener("click", back);
+  const all = el("button", { textContent: "Pick all" });
+  const move = el("button", { className: "primary", textContent: "Move to…" });
+  const notThem = el("button", { textContent: person ? `Not ${person.name}` : "Not this person" });
+  const label = el("span", { className: "n" });
+  const cells = faces.map((f, i) => {
+    const b = el(
+      "button",
+      { className: "face-pick" + (f.suggested ? " suggested" : ""), title: f.suggested ? "Suggested" : "" },
+      el("img", { src: faceUrl(f.id), alt: "", loading: "lazy", draggable: false, className: "avatar" }),
+    );
+    b.addEventListener("click", (e) => {
+      const range = e.shiftKey && last >= 0 ? [Math.min(last, i), Math.max(last, i)] : [i, i];
+      const on = !chosen.has(f.id);
+      for (let k = range[0]; k <= range[1]; k++) {
+        if (on) chosen.add(faces[k].id);
+        else chosen.delete(faces[k].id);
+        cells[k].classList.toggle("picked", on);
+      }
+      last = i;
+      update();
+    });
+    return b;
+  });
+  const update = () => {
+    label.textContent = chosen.size
+      ? `${chosen.size} of ${faces.length} faces picked`
+      : `${faces.length} faces. Click to pick, Shift+click for a range.`;
+    move.disabled = notThem.disabled = !chosen.size;
+    all.textContent = chosen.size === faces.length ? "Pick none" : "Pick all";
+  };
+  all.addEventListener("click", () => {
+    const on = chosen.size !== faces.length;
+    faces.forEach((f, k) => {
+      if (on) chosen.add(f.id);
+      else chosen.delete(f.id);
+      cells[k].classList.toggle("picked", on);
+    });
+    update();
+  });
+  move.addEventListener("click", async () => {
+    const r = await askName({ title: `Who are these ${chosen.size} faces?`, note: "Pick someone or type a new name." });
+    if (r.action !== "save" || !r.name.trim()) return;
+    await invoke("name_faces", { faces: [...chosen], name: r.name }).catch((e) => alert(e));
+    showFaces(of, title, person);
+  });
+  notThem.addEventListener("click", async () => {
+    await invoke("unname_faces", { faces: [...chosen] }).catch((e) => alert(e));
+    showFaces(of, title, person);
+  });
+  update();
+  peopleView.replaceChildren(
+    el(
+      "div",
+      { className: "review-head" },
+      backBtn,
+      el("h2", { textContent: title }),
+      label,
+      el("span", { className: "spacer" }),
+      all,
+      notThem,
+      move,
+    ),
+    el("div", { className: "faces-grid" }, ...cells),
+  );
+  $("#count").textContent = `${faces.length.toLocaleString()} faces`;
+  peopleView.focus();
 }
 
 // ---------- Review ----------
