@@ -2,7 +2,8 @@
 //! one scan runs at a time, a folder watcher for local drives, and a timer
 //! that notices drives coming and going and rescans network shares.
 
-use crate::AppState;
+use crate::{faces, AppState};
+use lazee_core::facescan::FaceProgress;
 use lazee_core::{ScanControl, ScanProgress};
 use notify::{EventKind, RecursiveMode, Watcher};
 use std::collections::{BTreeSet, HashSet};
@@ -97,35 +98,78 @@ fn run_scans(app: AppHandle, mut ctl: Arc<ScanControl>, mut which: Option<Vec<i6
     let state = app.state::<AppState>();
     loop {
         let _ = app.emit("scan-started", ());
-        // Progress arrives far more often than the UI needs it.
-        let last = Mutex::new(Instant::now() - Duration::from_secs(1));
-        let on_progress = |p: &ScanProgress| {
-            let mut last = last.lock().unwrap();
-            if last.elapsed() >= Duration::from_millis(150) {
-                *last = Instant::now();
-                let _ = app.emit("scan-progress", p);
-            }
-        };
+        let on_progress = throttled(|p: &ScanProgress| {
+            let _ = app.emit("scan-progress", p);
+        });
         let result = match &which {
             None => state.lib.scan(&ctl, &on_progress),
             Some(ids) => state.lib.scan_sources(ids, &ctl, &on_progress),
         }
         .map_err(|e| e.to_string());
 
-        let mut running = state.scans.running.lock().unwrap();
-        let next = state.scans.pending.lock().unwrap().take();
-        if next.is_none() {
-            *running = None;
+        // After the files are up to date, look for faces in new photos,
+        // unless the user stopped the scan.
+        let find_faces = !ctl.is_cancelled() && faces::enabled(&state.lib);
+        let next = take_next(&state, find_faces);
+        let _ = app.emit("scan-finished", (result, next.is_some() || find_faces));
+        if let Some(n) = next {
+            which = n;
+            ctl = new_control(&state);
+            continue;
         }
-        drop(running);
-        let _ = app.emit("scan-finished", (result, next.is_some()));
+        if !find_faces {
+            break;
+        }
+
+        ctl = new_control(&state);
+        let _ = app.emit("faces-started", ());
+        let on_progress = throttled(|p: &FaceProgress| {
+            let _ = app.emit("face-progress", p);
+        });
+        let result = faces::with_engine(&app, |engine| {
+            lazee_core::facescan::scan(&state.lib, engine, &ctl, &on_progress).map_err(|e| e.to_string())
+        })
+        .and_then(|r| r);
+        if let Err(e) = &result {
+            log::warn!("face scan: {e}");
+        }
+        let next = take_next(&state, false);
+        let _ = app.emit("faces-finished", (result, next.is_some()));
         match next {
             Some(n) => {
                 which = n;
-                ctl = Arc::new(ScanControl::default());
-                *state.scans.running.lock().unwrap() = Some(ctl.clone());
+                ctl = new_control(&state);
             }
             None => break,
+        }
+    }
+}
+
+/// Takes the next queued scan. When there is none, marks scanning as
+/// finished unless `more` work follows.
+fn take_next(state: &AppState, more: bool) -> Option<Option<Vec<i64>>> {
+    let mut running = state.scans.running.lock().unwrap();
+    let next = state.scans.pending.lock().unwrap().take();
+    if next.is_none() && !more {
+        *running = None;
+    }
+    next
+}
+
+fn new_control(state: &AppState) -> Arc<ScanControl> {
+    let ctl = Arc::new(ScanControl::default());
+    *state.scans.running.lock().unwrap() = Some(ctl.clone());
+    ctl
+}
+
+/// Progress arrives far more often than the UI needs it.
+fn throttled<P>(emit: impl Fn(&P) + Sync) -> impl Fn(&P) + Sync {
+    let last = Mutex::new(Instant::now() - Duration::from_secs(1));
+    move |p: &P| {
+        let mut last = last.lock().unwrap();
+        if last.elapsed() >= Duration::from_millis(150) {
+            *last = Instant::now();
+            emit(p);
         }
     }
 }

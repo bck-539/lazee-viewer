@@ -91,7 +91,7 @@ impl Library {
         self.writer.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn reader(&self) -> MutexGuard<'_, Connection> {
+    pub(crate) fn reader(&self) -> MutexGuard<'_, Connection> {
         self.reader.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -106,6 +106,10 @@ impl Library {
         let roots = volume::resolve(&keys);
         *self.roots.write().unwrap_or_else(|e| e.into_inner()) = roots.clone();
         roots
+    }
+
+    pub(crate) fn roots_snapshot(&self) -> HashMap<String, PathBuf> {
+        self.roots.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     fn root_of(&self, key: &str) -> Option<PathBuf> {
@@ -218,6 +222,12 @@ impl Library {
     /// Photo ids in display order, optionally limited to one source. RAW
     /// files with a JPEG of the same name appear once, as the JPEG.
     pub fn photo_list(&self, sort: SortOrder, source: Option<i64>) -> Result<PhotoList> {
+        self.photos_of(sort, source, None)
+    }
+
+    /// Like [`Library::photo_list`], optionally limited to photos with a
+    /// face from one group of look-alikes.
+    pub fn photos_of(&self, sort: SortOrder, source: Option<i64>, group: Option<i64>) -> Result<PhotoList> {
         let order = match sort {
             SortOrder::NewestFirst => "f.sort_date DESC, f.name",
             SortOrder::OldestFirst => "f.sort_date ASC, f.name",
@@ -232,12 +242,13 @@ impl Library {
              WHERE f.paired_with IS NULL
                AND (?1 IS NULL OR (fo.volume_id = s.volume_id AND (s.rel_path = '' OR fo.rel_path = s.rel_path
                     OR substr(fo.rel_path, 1, length(s.rel_path) + 1) = s.rel_path || '/' COLLATE NOCASE)))
+               AND (?2 IS NULL OR EXISTS (SELECT 1 FROM faces WHERE file_id = f.id AND cluster_id = ?2))
              ORDER BY {order}"
         );
         let roots = self.roots.read().unwrap_or_else(|e| e.into_inner()).clone();
         let conn = self.reader();
         let mut stmt = conn.prepare_cached(&sql)?;
-        let mut rows = stmt.query([source])?;
+        let mut rows = stmt.query([source, group])?;
         let mut list = PhotoList::default();
         while let Some(r) = rows.next()? {
             let id: i64 = r.get(0)?;

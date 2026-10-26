@@ -1,0 +1,22 @@
+# Face embedder. See crates/core/src/faces/pack.rs for the format.
+id = "sface-2021dec"
+name = "SFace (OpenCV Zoo, December 2021)"
+kind = "embedder"
+file = "face_recognition_sface_2021dec.onnx"
+licence = "Apache-2.0"
+url = "https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx"
+sha256 = "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79"
+
+[input]
+width = 112
+height = 112
+channels = "rgb"
+align = "arcface-112"
+
+[output]
+format = "embedding"
+dim = 128
+# OpenCV's published threshold for "same person" with cosine similarity.
+match_threshold = 0.363
+# Stricter, for grouping faces nobody has named yet.
+cluster_threshold = 0.45

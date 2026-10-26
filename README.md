@@ -8,9 +8,9 @@ telemetry.
 Built for big libraries on modest hardware: 200,000+ JPEG and RAW photos
 spread over internal disks, USB drives and a NAS.
 
-> **Status:** early development. Library indexing, the thumbnail grid and
-> the full-screen viewer are in place; face recognition comes next. See the
-> [roadmap](#roadmap).
+> **Status:** early development. Library indexing, the thumbnail grid, the
+> full-screen viewer and face finding are in place; naming people comes
+> next. See the [roadmap](#roadmap).
 
 ## What works today
 
@@ -38,6 +38,43 @@ spread over internal disks, USB drives and a NAS.
   while the full photo loads, and the next photos are preloaded.
 - A photo on a disconnected drive still opens from its thumbnail, with a
   note saying which drive to connect.
+- Faces (opt-in, under *Face settings*): after new photos are read, a
+  background scan finds the faces in them and groups look-alikes into
+  unnamed people. *People* shows one face per group; click it to see every
+  photo of that person. `B` in the viewer shows the face boxes. The face
+  scan pauses and stops with the file scan, and turning faces off deletes
+  all face data.
+
+## Face models are plug-ins
+
+Face finding uses two models: a *detector* that finds faces and five
+landmarks (eyes, nose, mouth corners), and a *recogniser* (embedder) that
+turns each face into a vector so faces of the same person can be matched.
+Both run on [ONNX Runtime](https://onnxruntime.ai), on the CPU.
+
+Each model is a folder with the `.onnx` file, its licence and a
+`model.toml` describing it. The app looks for model folders in `models`
+next to `lazee-viewer.exe` and in `%LOCALAPPDATA%\io.github.bck539.lazeeviewer\models`.
+To try another model, drop its folder in either place and pick it in
+*Face settings*; no rebuild is needed. Switching models makes the face
+scan look at every photo again, since different models' results can't be
+compared.
+
+The app ships with:
+
+| Model | Kind | Licence |
+| --- | --- | --- |
+| [YuNet 2023mar](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) | detector | MIT |
+| [SFace 2021dec](https://github.com/opencv/opencv_zoo/tree/main/models/face_recognition_sface) | recogniser | Apache-2.0 |
+
+`models/*/model.toml` are the examples to copy, and
+`crates/core/src/faces/pack.rs` documents every field. A recogniser in the
+same family (112×112 ArcFace-aligned input, one embedding output) works by
+writing a `model.toml`; a detector with a different output layout needs a
+decoder added in `crates/core/src/faces/detect.rs`.
+
+The `.onnx` files are not kept in git: `scripts/fetch-models.sh`
+downloads them and checks their SHA-256.
 
 ## Building
 
@@ -45,6 +82,7 @@ You need Rust (stable) and, on Windows, the WebView2 runtime (preinstalled
 on Windows 10 and 11).
 
 ```sh
+scripts/fetch-models.sh              # download the face models
 cargo run -p lazee-viewer            # run the app
 cargo test --workspace               # run the tests
 cargo tauri build                    # installer (needs `cargo install tauri-cli`)
@@ -52,7 +90,14 @@ cargo tauri build                    # installer (needs `cargo install tauri-cli
 
 The UI is plain HTML, CSS and JavaScript in `ui/` with no build step.
 
-To time indexing without the UI:
+Face finding needs ONNX Runtime 1.20 or newer: put `onnxruntime.dll` from
+the [Windows release](https://github.com/microsoft/onnxruntime/releases)
+next to the exe, or point `ORT_DYLIB_PATH` at it. Without it everything
+else works and *Face settings* says what is missing. The face tests also
+need `LAZEE_FACE_PHOTOS`, a folder with OpenCV's sample `lena.jpg` and
+`messi5.jpg`; they are skipped otherwise.
+
+To time indexing (and, with `ORT_DYLIB_PATH` set, face finding) without the UI:
 
 ```sh
 cargo run --release -p lazee-core --example index -- "D:\Photos"
@@ -62,7 +107,8 @@ cargo run --release -p lazee-core --example index -- "D:\Photos"
 
 | Path | What it is |
 | --- | --- |
-| `crates/core` | Library index, volumes, EXIF, RAW previews, thumbnails, scanner |
+| `crates/core` | Library index, volumes, EXIF, RAW previews, thumbnails, scanner, faces |
+| `models` | Face model packs (manifests and licences; weights are downloaded) |
 | `app` | Tauri 2 desktop app: commands and the thumbnail protocol |
 | `ui` | The interface |
 
@@ -74,9 +120,9 @@ The library lives in `%LOCALAPPDATA%\io.github.bck539.lazeeviewer`:
 1. **Library and grid** (done): indexing, volumes, thumbnails.
 2. **Viewer** (done): full-screen view with zoom and pan, folder watching,
    NAS rescans.
-3. **Face model spike:** compare redistributable models (YuNet + SFace and
-   others) on real photos.
-4. **Faces:** background detection, embeddings, unnamed clusters, face boxes.
+3. **Face model spike** (done): YuNet + SFace, run from Rust, as plug-ins.
+4. **Faces** (done): background detection, embeddings, unnamed groups, face
+   boxes, People page.
 5. **People:** import names from Windows Photo Gallery and IrfanView; name,
    merge and split people; auto-tagging with a review queue.
 6. **Search:** people with AND/OR, date and folder filters, timeline,
@@ -84,7 +130,7 @@ The library lives in `%LOCALAPPDATA%\io.github.bck539.lazeeviewer`:
 
 ## Privacy
 
-Face data never leaves your PC, face scanning will be opt-in, and your
+Face data never leaves your PC, face scanning is opt-in, and your
 photo files are never modified unless you turn on metadata write-back.
 
 ## Licence

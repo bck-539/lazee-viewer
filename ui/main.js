@@ -14,6 +14,7 @@ const state = {
   ids: [],
   offline: new Set(),
   source: null,
+  group: null,
   sort: "newest_first",
   cellSize: 180,
   selected: null,
@@ -146,7 +147,7 @@ async function select(id) {
 // ---------- Library ----------
 
 async function loadPhotos({ keepScroll = false } = {}) {
-  const list = await invoke("photo_list", { sort: state.sort, source: state.source });
+  const list = await invoke("photo_list", { sort: state.sort, source: state.source, group: state.group });
   state.ids = list.ids;
   state.offline = new Set(list.offline);
   $("#count").textContent = `${list.ids.length.toLocaleString()} photos`;
@@ -187,7 +188,9 @@ async function loadSources(sources) {
 
 $("#sidebar nav").addEventListener("click", (e) => {
   const b = e.target.closest(".source");
-  if (!b) return;
+  if (!b || b.id === "people-nav") return;
+  state.group = null;
+  showGrid();
   state.source = b.dataset.source === "" ? null : Number(b.dataset.source);
   document.querySelectorAll(".source").forEach((x) => x.classList.toggle("active", x === b));
   loadPhotos();
@@ -288,6 +291,35 @@ listen("scan-progress", ({ payload: p }) => {
     bar.removeAttribute("value");
     $("#scan-status").textContent = "Finishing up…";
   }
+});
+
+// Face finding follows the file scan, with its own progress.
+listen("faces-started", () => {
+  if (!state.scanning) setScanning(true);
+  $("#scan-status").textContent = "Looking for faces…";
+});
+
+listen("face-progress", ({ payload: p }) => {
+  const bar = $("#scan-bar");
+  bar.max = Math.max(1, p.total);
+  bar.value = p.done;
+  $("#scan-status").textContent =
+    `Looking for faces: ${p.done.toLocaleString()} of ${p.total.toLocaleString()} photos, ` +
+    `${p.faces.toLocaleString()} faces so far`;
+});
+
+listen("faces-finished", ({ payload: [result, more] }) => {
+  if (!more) setScanning(false);
+  if (result.Err) {
+    $("#scan-status").textContent = `Could not look for faces: ${result.Err}`;
+  } else {
+    const s = result.Ok;
+    let text = s.cancelled ? "Face search stopped. " : "Face search finished. ";
+    text += s.photos ? `${s.faces.toLocaleString()} faces in ${s.photos.toLocaleString()} photos.` : "No new photos.";
+    if (s.failed) text += ` ${s.failed.toLocaleString()} could not be read.`;
+    $("#scan-status").textContent = text;
+  }
+  refreshPeople();
 });
 
 listen("scan-finished", async ({ payload: [result, more] }) => {

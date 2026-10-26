@@ -2,7 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod background;
+mod faces;
 
+use lazee_core::people::{FaceBox, Group};
 use lazee_core::{FullImage, Library, PhotoInfo, PhotoList, SortOrder, Source};
 use std::sync::Arc;
 use tauri::http::{header, Response, StatusCode};
@@ -12,6 +14,7 @@ struct AppState {
     lib: Arc<Library>,
     scans: background::Scans,
     watch: background::FolderWatch,
+    faces: faces::FaceEngine,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -56,8 +59,13 @@ fn remove_source(app: AppHandle, state: State<AppState>, id: i64) -> CmdResult<(
 }
 
 #[tauri::command]
-fn photo_list(state: State<AppState>, sort: SortOrder, source: Option<i64>) -> CmdResult<PhotoList> {
-    state.lib.photo_list(sort, source).map_err(err)
+fn photo_list(
+    state: State<AppState>,
+    sort: SortOrder,
+    source: Option<i64>,
+    group: Option<i64>,
+) -> CmdResult<PhotoList> {
+    state.lib.photos_of(sort, source, group).map_err(err)
 }
 
 #[tauri::command]
@@ -100,6 +108,56 @@ fn cancel_scan(state: State<AppState>) {
 #[tauri::command]
 fn scan_running(state: State<AppState>) -> bool {
     state.scans.is_running()
+}
+
+#[tauri::command]
+fn photo_faces(state: State<AppState>, id: i64) -> CmdResult<Vec<FaceBox>> {
+    state.lib.photo_faces(id).map_err(err)
+}
+
+/// Groups of look-alike faces for the People page. Faces seen only once
+/// are left out; they are mostly strangers in the background.
+#[tauri::command]
+fn face_groups(state: State<AppState>) -> CmdResult<Vec<Group>> {
+    state.lib.groups(2).map_err(err)
+}
+
+#[tauri::command]
+async fn face_setup(app: AppHandle) -> CmdResult<faces::FaceSetup> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let lib = app.state::<AppState>().lib.clone();
+        faces::setup(&app, &lib)
+    })
+    .await
+    .map_err(err)
+}
+
+/// Turns face finding on or off, or switches models. Turning it off deletes
+/// every face found so far; switching models makes the next scan start the
+/// faces over, since different models' results can't be mixed.
+#[tauri::command]
+fn set_faces(
+    app: AppHandle,
+    state: State<AppState>,
+    enabled: bool,
+    detector: Option<String>,
+    embedder: Option<String>,
+) -> CmdResult<()> {
+    if state.scans.is_running() {
+        return Err("Wait for the scan to finish, or stop it, before changing face settings.".into());
+    }
+    let lib = &state.lib;
+    lib.set_setting(faces::DETECTOR, detector.as_deref()).map_err(err)?;
+    lib.set_setting(faces::EMBEDDER, embedder.as_deref()).map_err(err)?;
+    state.faces.reset();
+    if enabled {
+        lib.set_setting(faces::ENABLED, Some("1")).map_err(err)?;
+        // A scan of no folders goes straight to looking for faces.
+        background::request_scan(&app, Some(Vec::new()))
+    } else {
+        lib.set_setting(faces::ENABLED, None).map_err(err)?;
+        lib.forget_faces().map_err(err)
+    }
 }
 
 fn empty(status: StatusCode) -> Response<Vec<u8>> {
@@ -145,6 +203,18 @@ fn photo_response(lib: &Library, path: &str) -> Response<Vec<u8>> {
     }
 }
 
+/// Serves `face://localhost/<face id>`: a face's square thumbnail.
+fn face_response(lib: &Library, path: &str) -> Response<Vec<u8>> {
+    match photo_id(path).map(|id| lib.face_chip(id)) {
+        Some(Ok(Some(bytes))) => jpeg(bytes, "max-age=600"),
+        Some(Err(e)) => {
+            log::warn!("face {path}: {e}");
+            empty(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+        _ => empty(StatusCode::NOT_FOUND),
+    }
+}
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
@@ -154,7 +224,12 @@ fn main() {
             let dir = app.path().app_local_data_dir()?;
             log::info!("library data in {}", dir.display());
             let lib = Library::open(&dir)?;
-            app.manage(AppState { lib: Arc::new(lib), scans: Default::default(), watch: Default::default() });
+            app.manage(AppState {
+                lib: Arc::new(lib),
+                scans: Default::default(),
+                watch: Default::default(),
+                faces: Default::default(),
+            });
             background::rewatch(app.handle());
             background::start_monitor(app.handle().clone());
             Ok(())
@@ -169,6 +244,11 @@ fn main() {
             let path = request.uri().path().to_string();
             tauri::async_runtime::spawn_blocking(move || responder.respond(photo_response(&lib, &path)));
         })
+        .register_asynchronous_uri_scheme_protocol("face", |ctx, request, responder| {
+            let lib = ctx.app_handle().state::<AppState>().lib.clone();
+            let path = request.uri().path().to_string();
+            tauri::async_runtime::spawn_blocking(move || responder.respond(face_response(&lib, &path)));
+        })
         .invoke_handler(tauri::generate_handler![
             sources,
             refresh_volumes,
@@ -181,6 +261,10 @@ fn main() {
             pause_scan,
             cancel_scan,
             scan_running,
+            photo_faces,
+            face_groups,
+            face_setup,
+            set_faces,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lazee Viewer");

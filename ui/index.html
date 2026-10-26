@@ -11,6 +11,7 @@
     <h1>Lazee Viewer</h1>
     <nav>
       <button class="source active" data-source="">All photos</button>
+      <button id="people-nav" class="source" hidden>People</button>
       <div id="sources"></div>
     </nav>
     <button id="add-source" class="primary">Add folder…</button>
@@ -22,10 +23,12 @@
       </div>
       <progress id="scan-bar" hidden></progress>
       <p id="scan-status"></p>
+      <button id="face-settings">Face settings…</button>
     </section>
   </aside>
   <main>
     <header id="toolbar">
+      <button id="back-to-people" hidden title="Back to People">‹ People</button>
       <span id="count"></span>
       <label>Sort
         <select id="sort">
@@ -41,15 +44,21 @@
       <div id="spacer"></div>
       <p id="empty" hidden>No photos yet. Add a folder and scan it to start.</p>
     </div>
+    <div id="people" hidden tabindex="0">
+      <p id="people-empty" hidden></p>
+      <div id="people-list"></div>
+    </div>
     <footer id="info"></footer>
   </main>
   <div id="viewer" hidden tabindex="-1">
     <img id="viewer-thumb" alt="" draggable="false">
     <img id="viewer-full" alt="" draggable="false">
+    <div id="viewer-faces" hidden></div>
     <p id="viewer-message" hidden></p>
     <div id="viewer-bar">
       <span id="viewer-title"></span>
       <span id="viewer-zoom"></span>
+      <button id="viewer-boxes" title="Show faces (B)">Faces</button>
       <button id="viewer-fit" title="Fit to screen (0)">Fit</button>
       <button id="viewer-actual" title="Actual size (1)">100%</button>
       <button id="viewer-fullscreen" title="Full screen (F)">Full screen</button>
@@ -58,7 +67,30 @@
     <button id="viewer-prev" class="nav" title="Previous (←)">‹</button>
     <button id="viewer-next" class="nav" title="Next (→)">›</button>
   </div>
+  <dialog id="faces-dialog">
+    <form method="dialog">
+      <h2>Faces</h2>
+      <label class="check"><input id="faces-enabled" type="checkbox"> Find faces in my photos</label>
+      <p class="note">
+        Faces are found and compared on this PC only; nothing is sent anywhere. The scan runs in the background
+        after new photos are read, and can be paused like any scan. Turning this off deletes all face data.
+      </p>
+      <label>Face detector <select id="faces-detector"></select></label>
+      <label>Face recognition <select id="faces-embedder"></select></label>
+      <p class="note">
+        Models are plug-ins: put a model folder with a model.toml in <code id="faces-folder"></code> and it shows up
+        here. Switching models looks at every photo again.
+      </p>
+      <p id="faces-problem" class="problem" hidden></p>
+      <p id="faces-stats" class="note"></p>
+      <div class="buttons">
+        <button value="cancel">Cancel</button>
+        <button id="faces-save" class="primary" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
   <script src="main.js"></script>
+  <script src="people.js"></script>
   <script src="viewer.js"></script>
 </body>
 </html>
