@@ -6,6 +6,12 @@ on:
     # A version tag such as v0.1.0 also publishes a release with the zip.
     tags: ["v*"]
   pull_request:
+  # Or publish one from the Actions tab: tags the commit and makes the release.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, such as v0.1.0"
+        required: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -62,16 +68,19 @@ jobs:
           path: dist/
           if-no-files-found: error
       - name: Zip the app for a release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         shell: bash
+        env:
+          VERSION: ${{ inputs.version || github.ref_name }}
         run: |
-          name="lazee-viewer-${GITHUB_REF_NAME}-windows-x64"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          name="lazee-viewer-${VERSION}-windows-x64"
           mv dist "$name"
           7z a -tzip -bso0 "$name.zip" "$name"
           echo "ZIP=$name.zip" >> "$GITHUB_ENV"
       - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: gh release create "$GITHUB_REF_NAME" "$ZIP" --title "Lazee Viewer $GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$VERSION" "$ZIP" --target "$GITHUB_SHA" --title "Lazee Viewer $VERSION" --generate-notes

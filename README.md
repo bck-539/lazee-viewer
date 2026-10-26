@@ -139,6 +139,10 @@ To time indexing (and, with `ORT_DYLIB_PATH` set, face finding) without the UI:
 cargo run --release -p lazee-core --example index -- "D:\Photos"
 ```
 
+To publish a release, push a tag such as `v0.2.0`, or run the CI workflow
+from the Actions tab with the version. CI builds the app, zips it and
+attaches the zip to a new GitHub release.
+
 ## Layout
 
 | Path | What it is |
