@@ -156,6 +156,17 @@ fn set_faces(
     }
 }
 
+/// Turns saving names into the photo files on or off.
+#[tauri::command]
+fn set_write_back(app: AppHandle, state: State<AppState>, enabled: bool) -> CmdResult<()> {
+    let value = enabled.then_some("1");
+    state.lib.set_setting(lazee_core::writeback::SETTING, value).map_err(err)?;
+    if enabled {
+        background::request_scan(&app, Some(Vec::new()))?;
+    }
+    Ok(())
+}
+
 fn empty(status: StatusCode) -> Response<Vec<u8>> {
     Response::builder().status(status).body(Vec::new()).expect("static response parts are valid")
 }
@@ -261,6 +272,7 @@ fn main() {
             face_groups,
             face_setup,
             set_faces,
+            set_write_back,
             people::people,
             people::suggestions,
             people::name_group,

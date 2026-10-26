@@ -48,6 +48,8 @@ pub struct FaceSetup {
     pub stats: FaceStats,
     /// Where the user can add model packs of their own.
     pub user_models: String,
+    /// Whether names are saved into the photo files.
+    pub write_back: bool,
 }
 
 fn exe_dir() -> PathBuf {
@@ -113,6 +115,7 @@ pub fn setup(app: &AppHandle, lib: &Library) -> FaceSetup {
         problem,
         stats: lib.face_stats().unwrap_or_default(),
         user_models: pack_dirs(app).last().map(|d| d.display().to_string()).unwrap_or_default(),
+        write_back: lazee_core::writeback::enabled(lib),
     }
 }
 

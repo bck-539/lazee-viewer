@@ -23,7 +23,7 @@
       </div>
       <progress id="scan-bar" hidden></progress>
       <p id="scan-status"></p>
-      <button id="face-settings">Face settings…</button>
+      <button id="face-settings">Settings…</button>
     </section>
   </aside>
   <main>
@@ -34,6 +34,8 @@
         <span id="person-actions"></span>
       </span>
       <span id="count"></span>
+      <input id="search" type="search" placeholder="Search names, keywords, folders…" autocomplete="off">
+      <button id="filters-toggle" title="Filter by people and dates">Filters</button>
       <label>Sort
         <select id="sort">
           <option value="newest_first">Newest first</option>
@@ -44,9 +46,24 @@
       </label>
       <label>Size <input id="zoom" type="range" min="100" max="320" step="10" value="180"></label>
     </header>
-    <div id="grid" tabindex="0">
-      <div id="spacer"></div>
-      <p id="empty" hidden>No photos yet. Add a folder and scan it to start.</p>
+    <div id="filter-bar" hidden>
+      <span class="label">People</span>
+      <span id="filter-people"></span>
+      <input id="filter-person" list="people-names" placeholder="Add a person…" autocomplete="off">
+      <select id="filter-mode" title="Show photos with all of these people, or with any of them">
+        <option value="all">all of them together</option>
+        <option value="any">any of them</option>
+      </select>
+      <label>From <input id="filter-from" type="date"></label>
+      <label>To <input id="filter-to" type="date"></label>
+      <button id="filter-clear">Clear</button>
+    </div>
+    <div id="grid-wrap">
+      <div id="grid" tabindex="0">
+        <div id="spacer"></div>
+        <p id="empty" hidden>No photos yet. Add a folder and scan it to start.</p>
+      </div>
+      <div id="timeline" hidden><span id="timeline-tip" hidden></span></div>
     </div>
     <div id="people" hidden tabindex="0"></div>
     <footer id="info"></footer>
@@ -70,7 +87,7 @@
   </div>
   <dialog id="faces-dialog">
     <form method="dialog">
-      <h2>Faces</h2>
+      <h2>Settings</h2>
       <label class="check"><input id="faces-enabled" type="checkbox"> Find faces in my photos</label>
       <p class="note">
         Faces are found and compared on this PC only; nothing is sent anywhere. The scan runs in the background
@@ -84,6 +101,12 @@
       </p>
       <p id="faces-problem" class="problem" hidden></p>
       <p id="faces-stats" class="note"></p>
+      <label class="check"><input id="write-back" type="checkbox"> Save names into the photo files</label>
+      <p class="note">
+        Off: names stay in Lazee Viewer's library and your photos are never changed. On: names you give are also
+        saved in each photo's metadata, so Windows, Windows Photo Gallery and other programs see them. RAW files get an
+        .xmp file next to them.
+      </p>
       <div class="buttons">
         <button value="cancel">Cancel</button>
         <button id="faces-save" class="primary" value="save">Save</button>
@@ -107,6 +130,7 @@
   </dialog>
   <script src="main.js"></script>
   <script src="people.js"></script>
+  <script src="search.js"></script>
   <script src="viewer.js"></script>
 </body>
 </html>

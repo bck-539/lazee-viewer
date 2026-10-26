@@ -36,12 +36,15 @@ function setToolbar(mode) {
   const photos = mode === "photos";
   $("#sort").parentElement.hidden = !photos;
   $("#zoom").parentElement.hidden = !photos;
+  $("#search").hidden = !photos;
+  $("#filters-toggle").hidden = !photos;
+  $("#grid-wrap").hidden = !photos;
+  if (!photos) $("#filter-bar").hidden = true;
   $("#person-bar").hidden = !(photos && (state.person !== null || state.group !== null));
 }
 
 function showGrid() {
   peopleView.hidden = true;
-  grid.hidden = false;
   const inPeople = state.person !== null || state.group !== null;
   $("#people-nav").classList.toggle("active", inPeople);
   if (inPeople)
@@ -51,7 +54,6 @@ function showGrid() {
 
 function showPeopleView() {
   state.group = state.person = null;
-  grid.hidden = true;
   peopleView.hidden = false;
   document.querySelectorAll(".source").forEach((x) => x.classList.remove("active"));
   $("#people-nav").classList.add("active");
@@ -138,7 +140,7 @@ async function refreshPeople() {
         className: "empty",
         textContent: faceSetup?.enabled
           ? "Nobody yet. People appear here as faces are found in more than one photo, and when your photos already have name tags."
-          : "Nobody yet. Name tags already in your photos show up here after a scan. Turn on face finding in Face settings to group photos by the faces in them.",
+          : "Nobody yet. Name tags already in your photos show up here after a scan. Turn on face finding in Settings to group photos by the faces in them.",
       }),
     );
   }
@@ -192,7 +194,10 @@ async function openPerson(p) {
   });
   const forget = el("button", { textContent: "Forget name" });
   forget.addEventListener("click", async () => {
-    if (!confirm(`Forget ${p.name}? Their faces become unnamed. Tags inside the photo files are not changed.`)) return;
+    const files = faceSetup?.write_back
+      ? "Their name will also be taken out of the photo files."
+      : "Tags inside the photo files are not changed.";
+    if (!confirm(`Forget ${p.name}? Their faces become unnamed. ${files}`)) return;
     await invoke("delete_person", { person: p.id }).catch((e) => alert(e));
     showPeople();
   });
@@ -333,6 +338,7 @@ function fillPacks(select, packs, chosen) {
 $("#face-settings").addEventListener("click", async () => {
   const s = await loadFaceSetup();
   $("#faces-enabled").checked = s.enabled;
+  $("#write-back").checked = s.write_back;
   fillPacks($("#faces-detector"), s.detectors, s.detector);
   fillPacks($("#faces-embedder"), s.embedders, s.embedder);
   $("#faces-folder").textContent = s.user_models;
@@ -349,9 +355,22 @@ $("#face-settings").addEventListener("click", async () => {
 facesDialog.addEventListener("close", async () => {
   if (facesDialog.returnValue !== "save") return;
   const s = faceSetup;
+  const writeBack = $("#write-back").checked;
+  if (writeBack !== s.write_back) {
+    const ok =
+      !writeBack ||
+      confirm(
+        "Save names into your photo files?\n\nLazee Viewer will change the name part of the photos' metadata " +
+          "(the same place Windows Photo Gallery keeps it). The pictures themselves are not touched. " +
+          "Make sure you have a backup of your photos.",
+      );
+    if (ok) await invoke("set_write_back", { enabled: writeBack }).catch((e) => alert(e));
+  }
   const enabled = $("#faces-enabled").checked;
   const detector = $("#faces-detector").value || null;
   const embedder = $("#faces-embedder").value || null;
+  const facesChanged = enabled !== s.enabled || (enabled && (detector !== s.detector || embedder !== s.embedder));
+  if (!facesChanged) return;
   const switching = s.stats.faces > 0 && (detector !== s.detector || embedder !== s.embedder);
   if (s.stats.faces > 0 && !enabled && !confirm("Turn off face finding and delete every face found so far?")) return;
   if (enabled && switching && !confirm("Switch models? Every photo will be looked at again with the new ones.")) {

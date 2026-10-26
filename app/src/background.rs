@@ -5,6 +5,7 @@
 use crate::{faces, AppState};
 use lazee_core::facescan::FaceProgress;
 use lazee_core::tagscan::TagProgress;
+use lazee_core::writeback;
 use lazee_core::{ScanControl, ScanProgress};
 use notify::{EventKind, RecursiveMode, Watcher};
 use std::collections::{BTreeSet, HashSet};
@@ -32,12 +33,15 @@ pub struct Scans {
 struct Pending {
     all: bool,
     sources: BTreeSet<i64>,
+    /// A pass with no folders: tags, faces and writing names only.
+    again: bool,
 }
 
 impl Pending {
     fn add(&mut self, which: Option<&[i64]>) {
         match which {
             None => self.all = true,
+            Some([]) => self.again = true,
             Some(ids) => self.sources.extend(ids),
         }
     }
@@ -47,7 +51,7 @@ impl Pending {
         let p = std::mem::take(self);
         if p.all {
             Some(None)
-        } else if !p.sources.is_empty() {
+        } else if !p.sources.is_empty() || p.again {
             Some(Some(p.sources.into_iter().collect()))
         } else {
             None
@@ -97,78 +101,68 @@ pub fn request_scan(app: &AppHandle, which: Option<Vec<i64>>) -> Result<(), Stri
 
 fn run_scans(app: AppHandle, mut ctl: Arc<ScanControl>, mut which: Option<Vec<i64>>) {
     let state = app.state::<AppState>();
+    let lib = &state.lib;
     loop {
+        // Bring the files up to date...
         let _ = app.emit("scan-started", ());
         let on_progress = throttled(|p: &ScanProgress| {
             let _ = app.emit("scan-progress", p);
         });
         let result = match &which {
-            None => state.lib.scan(&ctl, &on_progress),
-            Some(ids) => state.lib.scan_sources(ids, &ctl, &on_progress),
+            None => lib.scan(&ctl, &on_progress),
+            Some(ids) => lib.scan_sources(ids, &ctl, &on_progress),
         }
         .map_err(|e| e.to_string());
 
-        // Then read the names and keywords other programs saved in new
-        // photos, and look for faces in them, unless the user stopped the
-        // scan.
+        // ...read the names and keywords other programs saved in them...
         let tags = (!ctl.is_cancelled()).then(|| {
             let _ = app.emit("tags-started", ());
             let on_progress = throttled(|p: &TagProgress| {
                 let _ = app.emit("tag-progress", p);
             });
-            lazee_core::tagscan::scan(&state.lib, &ctl, &on_progress).map_err(|e| e.to_string())
+            lazee_core::tagscan::scan(lib, &ctl, &on_progress).map_err(|e| e.to_string())
         });
-        let find_faces = !ctl.is_cancelled() && faces::enabled(&state.lib);
-        let next = take_next(&state, find_faces);
-        let _ = app.emit("scan-finished", (result, next.is_some() || find_faces, tags));
-        if let Some(n) = next {
-            which = n;
-            ctl = new_control(&state);
-            continue;
-        }
-        if !find_faces {
-            break;
-        }
+        let _ = app.emit("scan-finished", (result, tags));
 
-        ctl = new_control(&state);
-        let _ = app.emit("faces-started", ());
-        let on_progress = throttled(|p: &FaceProgress| {
-            let _ = app.emit("face-progress", p);
-        });
-        let result = faces::with_engine(&app, |engine| {
-            lazee_core::facescan::scan(&state.lib, engine, &ctl, &on_progress).map_err(|e| e.to_string())
-        })
-        .and_then(|r| r);
-        if let Err(e) = &result {
-            log::warn!("face scan: {e}");
-        }
-        let next = take_next(&state, false);
-        let _ = app.emit("faces-finished", (result, next.is_some()));
-        match next {
-            Some(n) => {
-                which = n;
-                ctl = new_control(&state);
+        // ...look for faces in new photos...
+        if !ctl.is_cancelled() && faces::enabled(lib) {
+            let _ = app.emit("faces-started", ());
+            let on_progress = throttled(|p: &FaceProgress| {
+                let _ = app.emit("face-progress", p);
+            });
+            let result = faces::with_engine(&app, |engine| {
+                lazee_core::facescan::scan(lib, engine, &ctl, &on_progress).map_err(|e| e.to_string())
+            })
+            .and_then(|r| r);
+            if let Err(e) = &result {
+                log::warn!("face scan: {e}");
             }
-            None => break,
+            let _ = app.emit("faces-finished", result);
+        }
+
+        // ...and, if the user asked for it, save changed names into the
+        // photos.
+        if !ctl.is_cancelled() && writeback::enabled(lib) {
+            let _ = app.emit("writing-started", ());
+            let result = writeback::run(lib, &ctl).map_err(|e| e.to_string());
+            let _ = app.emit("writing-finished", result);
+        }
+
+        let mut running = state.scans.running.lock().unwrap();
+        match state.scans.pending.lock().unwrap().take() {
+            Some(next) => {
+                which = next;
+                ctl = Arc::new(ScanControl::default());
+                *running = Some(ctl.clone());
+            }
+            None => {
+                *running = None;
+                drop(running);
+                let _ = app.emit("scans-idle", ());
+                break;
+            }
         }
     }
-}
-
-/// Takes the next queued scan. When there is none, marks scanning as
-/// finished unless `more` work follows.
-fn take_next(state: &AppState, more: bool) -> Option<Option<Vec<i64>>> {
-    let mut running = state.scans.running.lock().unwrap();
-    let next = state.scans.pending.lock().unwrap().take();
-    if next.is_none() && !more {
-        *running = None;
-    }
-    next
-}
-
-fn new_control(state: &AppState) -> Arc<ScanControl> {
-    let ctl = Arc::new(ScanControl::default());
-    *state.scans.running.lock().unwrap() = Some(ctl.clone());
-    ctl
 }
 
 /// Progress arrives far more often than the UI needs it.

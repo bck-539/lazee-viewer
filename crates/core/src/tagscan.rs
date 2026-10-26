@@ -123,7 +123,18 @@ fn load_todo(conn: &Connection, roots: &std::collections::HashMap<String, PathBu
 }
 
 fn store(tx: &Connection, t: &Todo, found: &[tags::Tag]) -> Result<()> {
-    tx.execute("DELETE FROM tags WHERE file_id = ?1", [t.file_id])?;
+    store_tags(tx, t.file_id, found)?;
+    tx.execute(
+        "INSERT OR REPLACE INTO tag_scans (file_id, content_hash, error) VALUES (?1, ?2, NULL)",
+        params![t.file_id, t.hash],
+    )?;
+    Ok(())
+}
+
+/// Replaces a photo's tags with those just read from it, and puts their
+/// names on its faces.
+pub(crate) fn store_tags(tx: &Connection, file_id: i64, found: &[tags::Tag]) -> Result<()> {
+    tx.execute("DELETE FROM tags WHERE file_id = ?1", [file_id])?;
     for tag in found {
         let person = if tag.kind == Kind::Person { Some(naming::person_id(tx, &tag.value)?) } else { None };
         let a = tag.area;
@@ -131,7 +142,7 @@ fn store(tx: &Connection, t: &Todo, found: &[tags::Tag]) -> Result<()> {
             "INSERT INTO tags (file_id, kind, value, source, x, y, w, h, person_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
-                t.file_id,
+                file_id,
                 tag.kind.as_str(),
                 tag.value,
                 tag.source,
@@ -143,9 +154,5 @@ fn store(tx: &Connection, t: &Todo, found: &[tags::Tag]) -> Result<()> {
             ],
         )?;
     }
-    tx.execute(
-        "INSERT OR REPLACE INTO tag_scans (file_id, content_hash, error) VALUES (?1, ?2, NULL)",
-        params![t.file_id, t.hash],
-    )?;
-    naming::link_file(tx, t.file_id)
+    naming::link_file(tx, file_id)
 }

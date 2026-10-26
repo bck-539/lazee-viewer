@@ -50,6 +50,18 @@ pub struct Filter {
     pub group: Option<i64>,
     /// Only photos of this person.
     pub person: Option<i64>,
+    /// Only photos with these people in them: all of them, or with
+    /// `any_person`, at least one.
+    #[serde(default)]
+    pub people: Vec<i64>,
+    #[serde(default)]
+    pub any_person: bool,
+    /// Words that must each appear in the file name, folder, a keyword, a
+    /// caption or a name.
+    pub text: Option<String>,
+    /// Dates as `YYYY-MM-DD`, both included.
+    pub from: Option<String>,
+    pub to: Option<String>,
 }
 
 /// Everything the grid needs: photo ids in display order, plus the ids
@@ -58,6 +70,16 @@ pub struct Filter {
 pub struct PhotoList {
     pub ids: Vec<i64>,
     pub offline: Vec<i64>,
+    /// When sorted by date: each month, as `YYYY-MM`, and where its photos
+    /// start in `ids`. Drives the timeline.
+    pub months: Vec<Month>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Month {
+    pub month: String,
+    pub start: u32,
+    pub count: u32,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -243,38 +265,92 @@ impl Library {
     /// Like [`Library::photo_list`], limited to the photos the filter
     /// lets through.
     pub fn photos_of(&self, sort: SortOrder, filter: &Filter) -> Result<PhotoList> {
-        let (source, group, person) = (filter.source, filter.group, filter.person);
+        use rusqlite::types::Value;
         let order = match sort {
             SortOrder::NewestFirst => "f.sort_date DESC, f.name",
             SortOrder::OldestFirst => "f.sort_date ASC, f.name",
             SortOrder::Name => "f.name, fo.rel_path",
             SortOrder::Folder => "fo.rel_path, f.name",
         };
+        let mut wheres = vec!["f.paired_with IS NULL".to_string()];
+        let mut args: Vec<Value> = Vec::new();
+        let mut arg = |v: Value| {
+            args.push(v);
+            format!("?{}", args.len())
+        };
+        // Someone is in a photo if a face in it is named (not just
+        // suggested) as them, or a tag in it names them.
+        let has_person = |p: &str| {
+            format!(
+                "(EXISTS (SELECT 1 FROM faces WHERE file_id = f.id AND person_id = {p} AND person_source != 'auto')
+                  OR EXISTS (SELECT 1 FROM tags WHERE file_id = f.id AND person_id = {p}))"
+            )
+        };
+        if let Some(source) = filter.source {
+            let p = arg(source.into());
+            wheres.push(format!(
+                "EXISTS (SELECT 1 FROM sources s WHERE s.id = {p} AND fo.volume_id = s.volume_id
+                    AND (s.rel_path = '' OR fo.rel_path = s.rel_path
+                         OR substr(fo.rel_path, 1, length(s.rel_path) + 1) = s.rel_path || '/' COLLATE NOCASE))"
+            ));
+        }
+        if let Some(group) = filter.group {
+            let p = arg(group.into());
+            wheres.push(format!(
+                "EXISTS (SELECT 1 FROM faces WHERE file_id = f.id AND cluster_id = {p} AND person_id IS NULL)"
+            ));
+        }
+        let mut people = filter.people.clone();
+        people.extend(filter.person);
+        if !people.is_empty() {
+            let clauses: Vec<String> = people.iter().map(|&p| has_person(&arg(p.into()))).collect();
+            let joiner = if filter.any_person { " OR " } else { " AND " };
+            wheres.push(format!("({})", clauses.join(joiner)));
+        }
+        for word in filter.text.as_deref().unwrap_or_default().split_whitespace() {
+            let p = arg(format!("%{}%", word.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")).into());
+            wheres.push(format!(
+                "(f.name LIKE {p} ESCAPE '\\' OR fo.rel_path LIKE {p} ESCAPE '\\'
+                  OR EXISTS (SELECT 1 FROM tags t WHERE t.file_id = f.id AND t.value LIKE {p} ESCAPE '\\')
+                  OR EXISTS (SELECT 1 FROM faces x JOIN people pe ON pe.id = x.person_id
+                             WHERE x.file_id = f.id AND x.person_source != 'auto' AND pe.name LIKE {p} ESCAPE '\\'))"
+            ));
+        }
+        if let Some(from) = filter.from.as_deref().filter(|d| !d.is_empty()) {
+            let p = arg(from.to_string().into());
+            wheres.push(format!("f.sort_date >= {p}"));
+        }
+        if let Some(to) = filter.to.as_deref().filter(|d| !d.is_empty()) {
+            let p = arg(to.to_string().into());
+            wheres.push(format!("substr(f.sort_date, 1, 10) <= {p}"));
+        }
         let sql = format!(
-            "SELECT f.id, v.key FROM files f
+            "SELECT f.id, v.key, substr(f.sort_date, 1, 7) FROM files f
              JOIN folders fo ON fo.id = f.folder_id
              JOIN volumes v ON v.id = fo.volume_id
-             LEFT JOIN sources s ON s.id = ?1
-             WHERE f.paired_with IS NULL
-               AND (?1 IS NULL OR (fo.volume_id = s.volume_id AND (s.rel_path = '' OR fo.rel_path = s.rel_path
-                    OR substr(fo.rel_path, 1, length(s.rel_path) + 1) = s.rel_path || '/' COLLATE NOCASE)))
-               AND (?2 IS NULL OR EXISTS (SELECT 1 FROM faces WHERE file_id = f.id AND cluster_id = ?2
-                                           AND person_id IS NULL))
-               AND (?3 IS NULL OR EXISTS (SELECT 1 FROM faces WHERE file_id = f.id AND person_id = ?3
-                                           AND person_source != 'auto')
-                    OR EXISTS (SELECT 1 FROM tags WHERE file_id = f.id AND person_id = ?3))
-             ORDER BY {order}"
+             WHERE {}
+             ORDER BY {order}",
+            wheres.join(" AND ")
         );
+        let by_date = matches!(sort, SortOrder::NewestFirst | SortOrder::OldestFirst);
         let roots = self.roots.read().unwrap_or_else(|e| e.into_inner()).clone();
         let conn = self.reader();
         let mut stmt = conn.prepare_cached(&sql)?;
-        let mut rows = stmt.query([source, group, person])?;
+        let mut rows = stmt.query(rusqlite::params_from_iter(args))?;
         let mut list = PhotoList::default();
         while let Some(r) = rows.next()? {
             let id: i64 = r.get(0)?;
+            let index = list.ids.len() as u32;
             list.ids.push(id);
             if !roots.contains_key(r.get_ref(1)?.as_str().map_err(rusqlite::Error::from)?) {
                 list.offline.push(id);
+            }
+            if by_date {
+                let month = r.get_ref(2)?.as_str().map_err(rusqlite::Error::from)?;
+                match list.months.last_mut() {
+                    Some(m) if m.month == month => m.count += 1,
+                    _ => list.months.push(Month { month: month.to_string(), start: index, count: 1 }),
+                }
             }
         }
         Ok(list)

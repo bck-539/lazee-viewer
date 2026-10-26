@@ -58,8 +58,9 @@ pub(crate) fn person_id(conn: &Connection, name: &str) -> Result<i64> {
     Ok(id)
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Rect {
+/// An area as fractions of the photo's width and height.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Rect {
     pub x: f32,
     pub y: f32,
     pub w: f32,
@@ -99,7 +100,7 @@ impl Rect {
 
     /// This area, given on the photo as stored, on the photo as shown after
     /// applying its EXIF orientation.
-    fn oriented(&self, orientation: u8) -> Rect {
+    pub(crate) fn oriented(&self, orientation: u8) -> Rect {
         let map = |x: f32, y: f32| match orientation {
             2 => (1.0 - x, y),
             3 => (1.0 - x, 1.0 - y),
