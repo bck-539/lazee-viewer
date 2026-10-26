@@ -74,5 +74,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
-        run: |
         run: gh release create "$GITHUB_REF_NAME" "$ZIP" --title "Lazee Viewer $GITHUB_REF_NAME" --generate-notes
