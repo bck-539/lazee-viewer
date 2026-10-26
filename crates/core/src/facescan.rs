@@ -79,6 +79,11 @@ pub fn scan(
             "INSERT OR REPLACE INTO settings (key, value) VALUES ('face_suggest_threshold', ?1)",
             [suggest.to_string()],
         )?;
+        // Groups this alike are worth asking about.
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('face_match_threshold', ?1)",
+            [e.match_threshold().to_string()],
+        )?;
         (load_todo(&conn, &key, &lib.roots_snapshot())?, Clusters::load(&conn, engine.embedder.cluster_threshold())?)
     };
     let total = todo.len() as u64;
@@ -161,6 +166,10 @@ fn write(lib: &Library, key: &str, batch: &mut Vec<Analyzed>, clusters: &mut Clu
     }
     let mut conn = lib.writer();
     let txn = conn.transaction()?;
+    // The user merged groups since the last batch: start from what is saved.
+    if clusters_version(&txn)? != clusters.version {
+        *clusters = Clusters::load(&txn, clusters.threshold)?;
+    }
     for a in batch.drain(..) {
         // The file may have gone while it was being looked at.
         let exists: bool =
@@ -329,6 +338,20 @@ pub fn from_blob(b: &[u8]) -> Vec<f32> {
 struct Clusters {
     threshold: f32,
     items: Vec<Cluster>,
+    /// The saved groups' version when they were loaded.
+    version: i64,
+}
+
+/// Bumped whenever groups change outside a face scan, such as when the user
+/// merges two.
+pub(crate) const CLUSTERS_VERSION: &str = "clusters_version";
+
+pub(crate) fn clusters_version(conn: &Connection) -> Result<i64> {
+    Ok(conn
+        .query_row("SELECT value FROM settings WHERE key = ?1", [CLUSTERS_VERSION], |r| r.get::<_, String>(0))
+        .optional()?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0))
 }
 
 struct Cluster {
@@ -354,7 +377,7 @@ impl Clusters {
                 })
             })?
             .collect::<std::result::Result<_, _>>()?;
-        Ok(Clusters { threshold, items })
+        Ok(Clusters { threshold, items, version: clusters_version(conn)? })
     }
 
     fn assign(&mut self, tx: &Connection, e: &[f32]) -> Result<i64> {

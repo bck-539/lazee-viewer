@@ -396,10 +396,20 @@ impl Library {
 
     /// Names one face.
     pub fn name_face(&self, face: i64, name: &str) -> Result<i64> {
+        self.name_faces(&[face], name)
+    }
+
+    /// Names faces picked by the user, such as a few from a group that
+    /// are someone else.
+    pub fn name_faces(&self, faces: &[i64], name: &str) -> Result<i64> {
         let conn = self.writer();
-        let person = person_id(&conn, name)?;
-        conn.execute("DELETE FROM face_rejects WHERE face_id = ?1 AND person_id = ?2", [face, person])?;
-        conn.execute("UPDATE faces SET person_id = ?1, person_source = 'user' WHERE id = ?2", [person, face])?;
+        let tx = conn.unchecked_transaction()?;
+        let person = person_id(&tx, name)?;
+        for &face in faces {
+            tx.execute("DELETE FROM face_rejects WHERE face_id = ?1 AND person_id = ?2", [face, person])?;
+            tx.execute("UPDATE faces SET person_id = ?1, person_source = 'user' WHERE id = ?2", [person, face])?;
+        }
+        tx.commit()?;
         refresh(&conn)?;
         Ok(person)
     }
@@ -407,18 +417,25 @@ impl Library {
     /// "That's not them": takes the name off a face, makes sure it is not
     /// suggested as that person again, and takes it out of its group.
     pub fn unname_face(&self, face: i64) -> Result<()> {
+        self.unname_faces(&[face])
+    }
+
+    pub fn unname_faces(&self, faces: &[i64]) -> Result<()> {
         let conn = self.writer();
-        conn.execute(
-            "INSERT OR IGNORE INTO face_rejects (face_id, person_id)
-             SELECT id, person_id FROM faces WHERE id = ?1 AND person_id IS NOT NULL",
-            [face],
-        )?;
-        conn.execute(
-            "UPDATE faces SET person_id = NULL, person_source = NULL, cluster_id = NULL WHERE id = ?1",
-            [face],
-        )?;
-        refresh(&conn)?;
-        Ok(())
+        let tx = conn.unchecked_transaction()?;
+        for &face in faces {
+            tx.execute(
+                "INSERT OR IGNORE INTO face_rejects (face_id, person_id)
+                 SELECT id, person_id FROM faces WHERE id = ?1 AND person_id IS NOT NULL",
+                [face],
+            )?;
+            tx.execute(
+                "UPDATE faces SET person_id = NULL, person_source = NULL, cluster_id = NULL WHERE id = ?1",
+                [face],
+            )?;
+        }
+        tx.commit()?;
+        refresh(&conn)
     }
 
     /// Confirms suggested faces as the person they were suggested as.

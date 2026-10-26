@@ -141,6 +141,15 @@ const SCHEMA: &[&str] = &[
         error        TEXT
     );
     "#,
+    // Version 4: "these two groups are not the same person", so the
+    // question is never asked again. Stored with a < b.
+    r#"
+    CREATE TABLE cluster_rejects (
+        a INTEGER NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
+        b INTEGER NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
+        PRIMARY KEY (a, b)
+    ) WITHOUT ROWID;
+    "#,
 ];
 
 const THUMBS_SCHEMA: &str = r#"

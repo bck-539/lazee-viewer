@@ -12,6 +12,7 @@ pub mod meta;
 pub mod naming;
 pub mod people;
 pub mod raw;
+pub mod sameperson;
 pub mod scanner;
 pub mod tags;
 pub mod tagscan;

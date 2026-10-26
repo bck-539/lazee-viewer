@@ -143,8 +143,9 @@ main {
 }
 #toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 20px;
+  gap: 8px 20px;
   padding: 8px 16px;
   border-bottom: 1px solid color-mix(in srgb, var(--text) 10%, transparent);
 }
@@ -455,10 +456,118 @@ main {
   text-align: center;
   border-color: color-mix(in srgb, var(--text) 20%, transparent);
 }
+.same-person {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--select) 12%, transparent);
+  transition: opacity 0.2s;
+}
+.same-person.done {
+  opacity: 0.4;
+}
+.same-person .q-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.same-person .q-head h2 {
+  margin: 0 0 10px !important;
+  color: var(--text) !important;
+}
+.same-person .n,
+.faces-grid + .n,
+.review-head .n {
+  color: var(--muted);
+  font-size: 12px;
+}
+.q-sides {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.q-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 200px;
+}
+.q-side .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.q-side .avatar {
+  width: 64px;
+}
+.q-and {
+  font-size: 24px;
+  color: var(--muted);
+}
+.same-person .answer {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+.merge-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.merge-bar.active {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--panel, var(--bg));
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.3);
+}
+.spacer {
+  flex: 1;
+}
+.merging .person {
+  outline: 2px dashed transparent;
+  border-radius: 8px;
+}
+.merging .person:hover {
+  outline-color: color-mix(in srgb, var(--select) 50%, transparent);
+}
+.person.picked,
+.face-pick.picked {
+  outline: 3px solid var(--select) !important;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--select) 18%, transparent);
+}
+.review-head .spacer {
+  flex: 1;
+}
+.faces-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.face-pick {
+  padding: 4px;
+  border-radius: 8px;
+}
+.face-pick .avatar {
+  width: 100%;
+}
+.face-pick.suggested .avatar {
+  opacity: 0.75;
+  outline: 2px dashed var(--muted);
+  outline-offset: 2px;
+}
 #person-bar {
   display: flex;
   align-items: center;
   gap: 10px;
+  white-space: nowrap;
 }
 #person-actions {
   display: flex;
@@ -656,4 +765,8 @@ dialog .buttons button {
   white-space: nowrap;
   pointer-events: none;
   z-index: 2;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
