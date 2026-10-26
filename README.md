@@ -8,9 +8,8 @@ telemetry.
 Built for big libraries on modest hardware: 200,000+ JPEG and RAW photos
 spread over internal disks, USB drives and a NAS.
 
-> **Status:** early development. Library indexing, the viewer, face
-> finding, naming people and importing existing name tags are in place;
-> search comes next. See the [roadmap](#roadmap).
+> **Status:** first complete version. Every milestone on the
+> [roadmap](#roadmap) is in place; expect rough edges.
 
 ## What works today
 
@@ -38,7 +37,7 @@ spread over internal disks, USB drives and a NAS.
   while the full photo loads, and the next photos are preloaded.
 - A photo on a disconnected drive still opens from its thumbnail, with a
   note saying which drive to connect.
-- Faces (opt-in, under *Face settings*): after new photos are read, a
+- Faces (opt-in, under *Settings*): after new photos are read, a
   background scan finds the faces in them and groups look-alikes into
   unnamed people. *People* shows one face per group; click it to see every
   photo of that person. `B` in the viewer shows the face boxes. The face
@@ -56,6 +55,17 @@ spread over internal disks, USB drives and a NAS.
   "No" is remembered, so a face is never suggested as that person again.
   Renaming someone to another person's name merges the two. Names you
   give survive a photo being rescanned, or a switch of face models.
+- Search: the search box matches people, folders, file names, keywords
+  and captions; every word must match. *Filters* picks people (all of
+  them in one photo, or any of them) and a date range.
+- Timeline: a strip along the grid shows years and months; click or drag
+  on it to jump through the library.
+- Writing names into the photos (off by default, under *Settings*): when
+  turned on, the names you give are written into each photo as standard
+  XMP face regions and keywords, which Lightroom, digiKam and Windows
+  understand. JPEGs are changed in place without touching the image data;
+  RAW files get an `.xmp` sidecar. Only photos whose names differ from
+  the library are written.
 
 ## Face models are plug-ins
 
@@ -68,7 +78,7 @@ Each model is a folder with the `.onnx` file, its licence and a
 `model.toml` describing it. The app looks for model folders in `models`
 next to `lazee-viewer.exe` and in `%LOCALAPPDATA%\io.github.bck539.lazeeviewer\models`.
 To try another model, drop its folder in either place and pick it in
-*Face settings*; no rebuild is needed. Switching models makes the face
+*Settings*; no rebuild is needed. Switching models makes the face
 scan look at every photo again, since different models' results can't be
 compared.
 
@@ -105,7 +115,7 @@ The UI is plain HTML, CSS and JavaScript in `ui/` with no build step.
 Face finding needs ONNX Runtime 1.20 or newer: put `onnxruntime.dll` from
 the [Windows release](https://github.com/microsoft/onnxruntime/releases)
 next to the exe, or point `ORT_DYLIB_PATH` at it. Without it everything
-else works and *Face settings* says what is missing. The face tests also
+else works and *Settings* says what is missing. The face tests also
 need `LAZEE_FACE_PHOTOS`, a folder with OpenCV's sample `lena.jpg` and
 `messi5.jpg`; they are skipped otherwise.
 
@@ -138,7 +148,7 @@ The library lives in `%LOCALAPPDATA%\io.github.bck539.lazeeviewer`:
 5. **People** (done): import names from Windows Photo Gallery and
    IrfanView; name, merge and correct people; suggestions with a review
    queue.
-6. **Search:** people with AND/OR, date and folder filters, timeline,
+6. **Search** (done): people with AND/OR, date and folder filters, timeline,
    optional XMP write-back (off by default).
 
 ## Privacy

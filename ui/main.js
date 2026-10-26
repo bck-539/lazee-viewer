@@ -150,12 +150,17 @@ async function select(id) {
 // ---------- Library ----------
 
 async function loadPhotos({ keepScroll = false } = {}) {
-  const filter = { source: state.source, group: state.group, person: state.person };
+  const filter = { source: state.source, group: state.group, person: state.person, ...searchFilter() };
   const list = await invoke("photo_list", { sort: state.sort, filter });
   state.ids = list.ids;
   state.offline = new Set(list.offline);
+  state.months = list.months;
   $("#count").textContent = `${list.ids.length.toLocaleString()} photos`;
   $("#empty").hidden = list.ids.length > 0;
+  $("#empty").textContent = searching()
+    ? "No photos match the search."
+    : "No photos yet. Add a folder and scan it to start.";
+  renderTimeline();
   if (!keepScroll) grid.scrollTop = 0;
   for (const cell of pool) cell.dataset.id = "";
   computeLayout();
@@ -312,8 +317,7 @@ listen("face-progress", ({ payload: p }) => {
     `${p.faces.toLocaleString()} faces so far`;
 });
 
-listen("faces-finished", ({ payload: [result, more] }) => {
-  if (!more) setScanning(false);
+listen("faces-finished", ({ payload: result }) => {
   if (result.Err) {
     $("#scan-status").textContent = `Could not look for faces: ${result.Err}`;
   } else {
@@ -338,9 +342,8 @@ listen("tag-progress", ({ payload: p }) => {
     `Reading name tags and keywords: ${p.done.toLocaleString()} of ${p.total.toLocaleString()}`;
 });
 
-listen("scan-finished", async ({ payload: [result, more, tags] }) => {
+listen("scan-finished", async ({ payload: [result, tags] }) => {
   const payload = result;
-  if (!more) setScanning(false);
   if (payload.Err) {
     $("#scan-status").textContent = `Scan failed: ${payload.Err}`;
   } else {
@@ -362,13 +365,34 @@ listen("scan-finished", async ({ payload: [result, more, tags] }) => {
   refreshPeople();
 });
 
-// ---------- Start ----------
+let statusBeforeWriting = "";
+listen("writing-started", () => {
+  statusBeforeWriting = $("#scan-status").textContent;
+  $("#scan-bar").removeAttribute("value");
+  $("#scan-status").textContent = "Saving names into photo files…";
+});
 
-(async () => {
+listen("writing-finished", ({ payload: result }) => {
+  let text = statusBeforeWriting;
+  if (result.Err) text = `Could not save names: ${result.Err}`;
+  else if (result.Ok.written || result.Ok.failed) {
+    text = `Saved names into ${result.Ok.written.toLocaleString()} photos.`;
+    if (result.Ok.failed) text += ` ${result.Ok.failed.toLocaleString()} could not be changed.`;
+  }
+  $("#scan-status").textContent = text;
+});
+
+// Everything queued is done.
+listen("scans-idle", () => setScanning(false));
+
+// ---------- Start ----------
+// Once every script has loaded, since the others add to this one.
+
+window.addEventListener("DOMContentLoaded", async () => {
   await Promise.all([loadSources(), loadPhotos()]);
   if (await invoke("scan_running")) setScanning(true);
   grid.focus();
   // Drives may have been plugged in or unplugged since last time.
   loadSources(await invoke("refresh_volumes"));
   loadPhotos({ keepScroll: true });
-})();
+});

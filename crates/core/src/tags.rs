@@ -73,10 +73,10 @@ pub fn read(path: &Path, is_raw: bool) -> Result<Vec<Tag>> {
     Ok(dedup(tags))
 }
 
-const XMP_SIG: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
+pub(crate) const XMP_SIG: &[u8] = b"http://ns.adobe.com/xap/1.0/\0";
 
 /// `IMG_1.xmp` or `IMG_1.CR2.xmp` next to a RAW file.
-fn sidecar(path: &Path) -> Option<std::path::PathBuf> {
+pub(crate) fn sidecar(path: &Path) -> Option<std::path::PathBuf> {
     let with_ext = {
         let mut s = path.as_os_str().to_os_string();
         s.push(".xmp");
@@ -147,19 +147,23 @@ fn add(tags: &mut Vec<Tag>, kind: Kind, value: &str, area: Option<Area>, source:
     tags.push(Tag { kind, value: value.to_string(), area, source });
 }
 
-/// Drops repeats, preferring a person tag that has a face area.
+/// Drops repeats. A person named twice (say in both Microsoft and MWG
+/// regions) is kept once, with a face area if either has one.
 fn dedup(tags: Vec<Tag>) -> Vec<Tag> {
     let mut out: Vec<Tag> = Vec::new();
     for t in tags {
-        let same = |o: &Tag| o.kind == t.kind && o.value.eq_ignore_ascii_case(&t.value);
-        match out.iter_mut().find(|o| same(o) && (o.area.is_none() || t.area.is_none() || o.area == t.area)) {
+        match out.iter_mut().find(|o| o.kind == t.kind && o.value.eq_ignore_ascii_case(&t.value)) {
             Some(o) if o.area.is_none() && t.area.is_some() => *o = t,
             Some(_) => {}
             None => out.push(t),
         }
     }
-    // A person named both with and without an area is the same tag once.
     out
+}
+
+#[cfg(test)]
+pub(crate) fn parse_xmp_for_test(xml: &[u8], tags: &mut Vec<Tag>) {
+    parse_xmp(xml, tags)
 }
 
 /// Text that is UTF-8 if it can be, otherwise Windows-1252, IrfanView's
@@ -330,7 +334,10 @@ impl Node {
     /// The node holding a structure's fields: the element itself, or its
     /// `rdf:Description` child.
     fn fields(&self, ns: &str, name: &str) -> Option<&Node> {
-        let n = self.children.iter().find(|c| c.is(ns, name))?;
+        let n = self.children.iter().find(|c| c.is(ns, name)).or_else(|| {
+            let d = self.children.iter().find(|c| c.is(RDF, "Description"))?;
+            d.children.iter().find(|c| c.is(ns, name))
+        })?;
         Some(n.children.iter().find(|c| c.is(RDF, "Description")).unwrap_or(n))
     }
 

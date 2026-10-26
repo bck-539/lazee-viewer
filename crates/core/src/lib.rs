@@ -17,6 +17,7 @@ pub mod tags;
 pub mod tagscan;
 pub mod thumbs;
 pub mod volume;
+pub mod writeback;
 
 pub use library::{Filter, FullImage, Library, PhotoInfo, PhotoList, SortOrder, Source};
 pub use scanner::{ScanControl, ScanPhase, ScanProgress, ScanSummary};

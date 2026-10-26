@@ -160,3 +160,76 @@ fn names_spread_to_look_alikes() {
     facescan::scan(&lib, &mut engine, &ScanControl::default(), &|_| {}).unwrap();
     assert_eq!(lib.photo_faces(ids[3]).unwrap()[0].person.as_deref(), Some("Lionel"));
 }
+
+#[test]
+fn search_by_people_words_and_dates() {
+    let photos = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let p = photos.path();
+    std::fs::write(p.join("beach.jpg"), with_people(&jpeg(64, 48), &[("Anna", None)], &["Urlaub", "Strand"])).unwrap();
+    std::fs::write(p.join("party.jpg"), with_people(&jpeg(64, 48), &[("Anna", None), ("Ben", None)], &["Feier"]))
+        .unwrap();
+    std::fs::create_dir(p.join("Rom 2019")).unwrap();
+    std::fs::write(p.join("Rom 2019/ben.jpg"), with_people(&jpeg(64, 48), &[("Ben", None)], &[])).unwrap();
+    let lib = Library::open(data.path()).unwrap();
+    lib.add_source(p).unwrap();
+    scan_all(&lib);
+    let people = lib.people().unwrap();
+    let id = |n: &str| people.iter().find(|p| p.name == n).unwrap().id;
+    let names = |f: Filter| -> Vec<String> {
+        let ids = lib.photos_of(SortOrder::Name, &f).unwrap().ids;
+        ids.iter().map(|i| lib.photo_info(*i).unwrap().unwrap().name).collect()
+    };
+
+    let both = vec![id("Anna"), id("Ben")];
+    assert_eq!(names(Filter { people: both.clone(), ..Default::default() }), vec!["party.jpg"]);
+    assert_eq!(names(Filter { people: both, any_person: true, ..Default::default() }).len(), 3);
+    assert_eq!(names(Filter { text: Some("strand".into()), ..Default::default() }), vec!["beach.jpg"]);
+    assert_eq!(names(Filter { text: Some("rom ben".into()), ..Default::default() }), vec!["ben.jpg"]);
+    assert_eq!(names(Filter { text: Some("100%".into()), ..Default::default() }), Vec::<String>::new());
+    assert_eq!(names(Filter { text: Some("anna".into()), ..Default::default() }).len(), 2);
+
+    // Dates: the files have no EXIF, so they sort by today's file time.
+    let list = lib.photos_of(SortOrder::NewestFirst, &Filter::default()).unwrap();
+    let month = &list.months[0];
+    assert_eq!((month.start, month.count), (0, 3));
+    let today = format!("{}-01", month.month);
+    assert_eq!(names(Filter { from: Some(today.clone()), ..Default::default() }).len(), 3);
+    assert!(names(Filter { to: Some("2000-01-01".into()), ..Default::default() }).is_empty());
+}
+
+#[test]
+fn writes_names_back_only_when_asked() {
+    use lazee_core::{tags, writeback};
+    let photos = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let p = photos.path();
+    let original = with_people(&jpeg(64, 48), &[("Anna", Some("0.1, 0.1, 0.3, 0.3"))], &["Urlaub"]);
+    std::fs::write(p.join("a.jpg"), &original).unwrap();
+    std::fs::write(p.join("b.jpg"), jpeg(64, 48)).unwrap();
+    let lib = Library::open(data.path()).unwrap();
+    lib.add_source(p).unwrap();
+    scan_all(&lib);
+    let anna = lib.people().unwrap()[0].id;
+    lib.rename_person(anna, "Anna Maria").unwrap();
+
+    // Off by default: nothing is written.
+    assert!(!writeback::enabled(&lib));
+    assert_eq!(std::fs::read(p.join("a.jpg")).unwrap(), original);
+
+    lib.set_setting(writeback::SETTING, Some("1")).unwrap();
+    let s = writeback::run(&lib, &ScanControl::default()).unwrap();
+    assert_eq!((s.written, s.failed), (1, 0));
+    let found = tags::read(&p.join("a.jpg"), false).unwrap();
+    let anna = found.iter().find(|t| t.value == "Anna Maria").unwrap();
+    assert!(anna.area.is_some());
+    assert!(found.iter().any(|t| t.value == "Urlaub"));
+    assert!(!found.iter().any(|t| t.value == "Anna"));
+
+    // Nothing more to write, and the library knows the file is current.
+    assert_eq!(writeback::run(&lib, &ScanControl::default()).unwrap().written, 0);
+    let s = lib.scan(&ScanControl::default(), &|_| {}).unwrap();
+    assert_eq!((s.added, s.updated, s.unchanged), (0, 0, 2));
+    assert_eq!(tagscan::scan(&lib, &ScanControl::default(), &|_| {}).unwrap().photos, 0);
+    assert_eq!(lib.people().unwrap()[0].name, "Anna Maria");
+}
