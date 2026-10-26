@@ -32,8 +32,10 @@ jobs:
           for f in lena.jpg messi5.jpg; do
             curl -sSfL -o "test-photos/$f" "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/$f"
           done
-          echo "ORT_DYLIB_PATH=$PWD/ort/lib/onnxruntime.dll" >> "$GITHUB_ENV"
-          echo "LAZEE_FACE_PHOTOS=$PWD/test-photos" >> "$GITHUB_ENV"
+          # Windows paths: the tests load these from native code.
+          here=$(cygpath -w "$PWD")
+          echo "ORT_DYLIB_PATH=$here\ort\lib\onnxruntime.dll" >> "$GITHUB_ENV"
+          echo "LAZEE_FACE_PHOTOS=$here\test-photos" >> "$GITHUB_ENV"
       - run: cargo test --workspace
       - run: cargo build --release -p lazee-viewer
       - name: Put the app together
