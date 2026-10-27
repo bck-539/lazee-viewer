@@ -40,11 +40,75 @@ static ENVIRONMENT: OnceLock<std::result::Result<Environment, String>> = OnceLoc
 pub fn runtime(library: &Path) -> Result<&'static Environment> {
     ENVIRONMENT
         .get_or_init(|| {
-            let builder = ort::init_from(library).map_err(|e| format!("cannot load {}: {e}", library.display()))?;
+            let builder = ort::init_from(library).map_err(|e| match load_problem(library) {
+                Some(why) => format!("cannot load {}: {why}", library.display()),
+                None => format!("cannot load {}: {e}", library.display()),
+            })?;
             builder.with_name("lazee").build().map_err(|e| e.to_string())
         })
         .as_ref()
         .map_err(|e| Error::Invalid(format!("ONNX Runtime: {e}")))
+}
+
+/// The Microsoft Visual C++ runtime DLLs that ONNX Runtime needs. The app
+/// ships them next to the exe, because many PCs only have an older copy.
+pub const VC_RUNTIME: [&str; 4] = ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll"];
+
+#[cfg(windows)]
+const VC_REDIST_URL: &str = "https://aka.ms/vs/17/release/vc_redist.x64.exe";
+
+/// Says in plain words why Windows won't load `library`, by loading it
+/// again and looking at the error code. `None` if it loads now.
+#[cfg(windows)]
+fn load_problem(library: &Path) -> Option<String> {
+    let code = try_load(library)?;
+    let reinstall = format!(
+        "This usually means the Microsoft Visual C++ runtime is missing or too old. Lazee Viewer \
+         brings its own copy ({}) next to lazee-viewer.exe: unzip all files of the download into \
+         one folder, or install the runtime from {VC_REDIST_URL}.",
+        VC_RUNTIME.join(", ")
+    );
+    Some(match code {
+        // ERROR_MOD_NOT_FOUND: a DLL it depends on is missing.
+        126 => {
+            let missing: Vec<&str> = VC_RUNTIME.iter().copied().filter(|n| try_load(Path::new(n)).is_some()).collect();
+            if missing.is_empty() {
+                format!("Windows can't find a file it needs (error 126). {reinstall}")
+            } else {
+                format!("Windows can't find {} (error 126). {reinstall}", missing.join(", "))
+            }
+        }
+        // ERROR_BAD_EXE_FORMAT
+        193 => "it isn't a 64-bit Windows DLL (error 193); use onnxruntime.dll from the Lazee Viewer download.".into(),
+        // ERROR_DLL_INIT_FAILED, ERROR_PROC_NOT_FOUND: usually an older runtime DLL is picked up.
+        1114 | 127 => format!("it doesn't start (error {code}). {reinstall}"),
+        // ERROR_ACCESS_DENIED: often an antivirus quarantining the file.
+        5 => "Windows denied access to it (error 5); an antivirus program may be blocking it.".into(),
+        _ => format!("Windows error {code}. {reinstall}"),
+    })
+}
+
+#[cfg(not(windows))]
+fn load_problem(_library: &Path) -> Option<String> {
+    None
+}
+
+/// Loads and frees a DLL; returns the Windows error code if it fails.
+#[cfg(windows)]
+fn try_load(library: &Path) -> Option<u32> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{FreeLibrary, GetLastError};
+    use windows_sys::Win32::System::LibraryLoader::LoadLibraryExW;
+    let wide: Vec<u16> = library.as_os_str().encode_wide().chain(Some(0)).collect();
+    // SAFETY: `wide` is a NUL-terminated path; the module is freed at once.
+    unsafe {
+        let module = LoadLibraryExW(wide.as_ptr(), std::ptr::null_mut(), 0);
+        if module.is_null() {
+            return Some(GetLastError());
+        }
+        FreeLibrary(module);
+    }
+    None
 }
 
 /// Where to look for the ONNX Runtime library: next to the app first, then
