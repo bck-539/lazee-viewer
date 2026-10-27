@@ -55,13 +55,23 @@ jobs:
           cp target/release/lazee-viewer.exe ort/lib/onnxruntime.dll dist/
           cp ort/LICENSE dist/onnxruntime-LICENSE.txt
           cp ort/ThirdPartyNotices.txt dist/onnxruntime-ThirdPartyNotices.txt
+          # ONNX Runtime needs the Visual C++ 2022 runtime (msvcp140_1.dll,
+          # vcruntime140_1.dll), which many PCs lack or have only in an older
+          # version. Ship it next to the exe (app-local deployment), where
+          # Windows looks first.
+          vs=$("/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest -property installationPath)
+          crt=$(ls -d "$(cygpath -u "$vs")"/VC/Redist/MSVC/14.*/x64/Microsoft.VC14*.CRT | sort -V | tail -1)
+          echo "Visual C++ runtime from $crt"
+          for f in vcruntime140.dll vcruntime140_1.dll msvcp140.dll msvcp140_1.dll; do
+            cp "$crt/$f" dist/
+          done
           cp LICENSE dist/LICENSE.txt
           for d in models/*/; do
             mkdir -p "dist/$d"
             cp "$d"model.toml "$d"LICENSE "$d"*.onnx "dist/$d"
           done
-      # The MSVC build links the WebView2 loader statically; ONNX Runtime and
-      # the face models sit next to the exe.
+      # The MSVC build links the WebView2 loader statically; ONNX Runtime, the
+      # Visual C++ runtime and the face models sit next to the exe.
       - uses: actions/upload-artifact@v4
         with:
           name: lazee-viewer-windows-x64

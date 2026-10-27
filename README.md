@@ -16,7 +16,8 @@ spread over internal disks, USB drives and a NAS.
 Get the latest `lazee-viewer-…-windows-x64.zip` from
 [Releases](https://github.com/bck-539/lazee-viewer/releases), unzip it
 anywhere and run `lazee-viewer.exe`. It needs the Microsoft Edge WebView2
-runtime, which Windows 10 and 11 already have. The exe isn't code-signed
+runtime, which Windows 10 and 11 already have; everything else, including
+the Visual C++ runtime that face finding uses, is in the zip. The exe isn't code-signed
 yet, so Windows SmartScreen may ask you to confirm the first start.
 
 ## What works today
