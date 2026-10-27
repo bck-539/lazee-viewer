@@ -205,8 +205,13 @@ pub fn rewatch(app: &AppHandle) {
             if !is_interesting(path) {
                 continue;
             }
-            if let Some((id, _)) = watched.iter().find(|(_, root)| path.starts_with(root)) {
-                let _ = tx.send(*id);
+            if let Some((id, root)) = watched.iter().find(|(_, root)| path.starts_with(root)) {
+                // A whole drive sees constant churn in folders the scan
+                // skips, such as AppData and the recycle bin.
+                let rel = path.strip_prefix(root).unwrap_or(path);
+                if !lazee_core::formats::skipped(rel, lazee_core::volume::is_root(root)) {
+                    let _ = tx.send(*id);
+                }
             }
         }
     };

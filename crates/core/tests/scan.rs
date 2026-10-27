@@ -33,7 +33,7 @@ fn indexes_moves_and_deletes() {
     let lib = Library::open(data.path()).unwrap();
     let source = lib.add_source(p).unwrap();
     assert!(source.online);
-    assert!(lib.add_source(&p.join("2015")).is_err(), "nested sources are refused");
+    assert!(lib.add_source(&p.join("2015")).is_err(), "a folder inside a source is refused");
 
     let s = scan(&lib);
     assert_eq!((s.added, s.failed, s.removed), (3, 0, 0));
@@ -159,4 +159,49 @@ fn full_images_and_partial_scans() {
     std::fs::remove_file(a.path().join("a.jpg")).unwrap();
     assert!(matches!(lib.full_image(ids[0]).unwrap(), FullImage::Missing));
     assert!(matches!(lib.full_image(-1).unwrap(), FullImage::Missing));
+}
+
+#[test]
+fn adding_a_parent_folds_in_its_subfolders() {
+    let photos = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let p = photos.path();
+    write(&p.join("2015/a.jpg"), &jpeg(200, 100, 3));
+    write(&p.join("2016/b.jpg"), &jpeg(200, 100, 5));
+    write(&p.join("other/c.jpg"), &jpeg(200, 100, 7));
+
+    let lib = Library::open(data.path()).unwrap();
+    lib.add_source(&p.join("2015")).unwrap();
+    lib.add_source(&p.join("2016")).unwrap();
+    assert_eq!(scan(&lib).added, 2);
+    let before = lib.photo_list(SortOrder::Name, None).unwrap().ids;
+
+    let parent = lib.add_source(p).unwrap();
+    let sources = lib.sources().unwrap();
+    assert_eq!(sources.len(), 1, "the subfolders became part of the parent");
+    assert_eq!(sources[0].id, parent.id);
+    assert_eq!(sources[0].photo_count, 2, "their photos stay indexed");
+
+    let s = scan(&lib);
+    assert_eq!((s.added, s.unchanged, s.removed), (1, 2, 0));
+    let after = lib.photo_list(SortOrder::Name, None).unwrap().ids;
+    assert_eq!(&after[..2], &before[..], "photos keep their ids, so faces and names stay");
+    assert!(lib.add_source(&p.join("2015")).is_err(), "a folder inside a source is refused");
+}
+
+/// Whole drives only exist on Windows; CI runs this there.
+#[cfg(windows)]
+#[test]
+fn a_whole_drive_can_be_added() {
+    let data = tempfile::tempdir().unwrap();
+    let drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into());
+    let lib = Library::open(data.path()).unwrap();
+    // A bare `C:` from a typed path means the whole drive too.
+    let source = lib.add_source(Path::new(&drive)).unwrap();
+    assert_eq!(source.rel_path, "");
+    assert!(source.online);
+    assert!(source.volume_key.starts_with("vol:"));
+    assert_eq!(Path::new(&source.display_path), Path::new(&format!("{drive}\\")));
+    assert!(lib.add_source(Path::new(&format!("{drive}\\Users"))).is_err());
+    lib.remove_source(source.id).unwrap();
 }

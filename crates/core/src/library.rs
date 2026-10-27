@@ -2,7 +2,7 @@
 //! behind one handle the app keeps for its lifetime.
 
 use crate::scanner::{self, ScanControl, ScanProgress, ScanSummary};
-use crate::{db, volume, Error, Result};
+use crate::{db, formats, volume, Error, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -153,13 +153,18 @@ impl Library {
         self.roots.read().unwrap_or_else(|e| e.into_inner()).get(key).cloned()
     }
 
-    /// Adds a folder to the library. It is indexed on the next scan.
+    /// Adds a folder, or a whole drive, to the library. It is indexed on the
+    /// next scan. Folders already in the library that sit inside the new one
+    /// are folded into it, keeping their photos, faces and names.
     pub fn add_source(&self, path: &Path) -> Result<Source> {
+        let path = volume::normalize(path);
+        let path = path.as_path();
         if !path.is_dir() {
             return Err(Error::Invalid(format!("{} is not a folder", path.display())));
         }
         let loc = volume::locate(path)?;
-        let conn = self.writer();
+        let mut guard = self.writer();
+        let conn = guard.transaction()?;
         conn.execute(
             "INSERT INTO volumes (key, label, kind) VALUES (?1, ?2, ?3)
              ON CONFLICT (key) DO UPDATE SET label = excluded.label",
@@ -168,27 +173,31 @@ impl Library {
         let volume_id: i64 =
             conn.query_row("SELECT id FROM volumes WHERE key = ?1", [&loc.volume.key], |r| r.get(0))?;
 
-        // Nested sources would index the same files twice.
-        let existing: Vec<String> = conn
-            .prepare("SELECT rel_path FROM sources WHERE volume_id = ?1")?
-            .query_map([volume_id], |r| r.get(0))?
+        // Nested sources would index the same files twice. The files table
+        // knows nothing of sources, so folding a folder into a parent leaves
+        // its photos indexed; the next scan of the parent just finds them.
+        let existing: Vec<(i64, String)> = conn
+            .prepare("SELECT id, rel_path FROM sources WHERE volume_id = ?1")?
+            .query_map([volume_id], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<Result<_, _>>()?;
         let new = loc.rel.to_lowercase();
-        for e in existing {
+        for (id, e) in existing {
             let e = e.to_lowercase();
             if e == new || is_under(&new, &e) {
                 return Err(Error::Invalid(format!("{} is already in the library", path.display())));
             }
-            if is_under(&e, &new) {
-                return Err(Error::Invalid(format!(
-                    "{} contains a folder that is already in the library; remove that one first",
-                    path.display()
-                )));
+            // A folder the new one's scan skips, such as one under
+            // `Program Files` on a whole drive, stays a source of its own.
+            if is_under(&e, &new)
+                && !formats::skipped(Path::new(e[new.len()..].trim_start_matches('/')), new.is_empty())
+            {
+                conn.execute("DELETE FROM sources WHERE id = ?1", [id])?;
             }
         }
         conn.execute("INSERT INTO sources (volume_id, rel_path) VALUES (?1, ?2)", params![volume_id, loc.rel])?;
         let id = conn.last_insert_rowid();
-        drop(conn);
+        conn.commit()?;
+        drop(guard);
         self.roots.write().unwrap_or_else(|e| e.into_inner()).insert(loc.volume.key, loc.root);
         self.sources()?.into_iter().find(|s| s.id == id).ok_or_else(|| Error::Invalid("source vanished".into()))
     }

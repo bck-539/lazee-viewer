@@ -179,8 +179,14 @@ fn scan_source(
     let mut todo = Vec::new();
     let mut failed_dirs: Vec<String> = Vec::new();
     let mut found = 0u64;
+    let at_root = volume::is_root(dir);
     let walker = walkdir::WalkDir::new(dir).follow_links(false).into_iter().filter_entry(|e| {
-        e.depth() == 0 || !e.file_type().is_dir() || !formats::skip_dir(&e.file_name().to_string_lossy())
+        if e.depth() == 0 || !e.file_type().is_dir() {
+            return true;
+        }
+        let name = e.file_name().to_string_lossy();
+        let skip = if at_root && e.depth() == 1 { formats::skip_root_dir(&name) } else { formats::skip_dir(&name) };
+        !skip && !hidden_system(e)
     });
     for entry in walker {
         if !ctl.checkpoint() {
@@ -204,9 +210,12 @@ fn scan_source(
             continue;
         }
         let Some(kind) = formats::classify(entry.path()) else { continue };
-        let Ok(md) = entry.metadata() else { continue };
         let Ok(rel) = entry.path().strip_prefix(root) else { continue };
         let rel_dir = rel.parent().map(volume::rel_to_string).unwrap_or_default();
+        let Ok(md) = entry.metadata() else {
+            failed_dirs.push(rel_dir.to_lowercase());
+            continue;
+        };
         let name = entry.file_name().to_string_lossy().into_owned();
         let size = md.len();
         let mtime =
@@ -315,6 +324,21 @@ fn scan_source(
     tx.execute("UPDATE sources SET last_scan = strftime('%Y-%m-%dT%H:%M:%S', 'now') WHERE id = ?1", [source.id])?;
     tx.commit()?;
     Ok(())
+}
+
+/// Folders Windows marks both hidden and system, such as recycle bins and
+/// restore points under any name. Hidden alone is left alone: people hide
+/// folders of their own photos.
+#[cfg(windows)]
+fn hidden_system(e: &walkdir::DirEntry) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const HIDDEN_SYSTEM: u32 = 0x2 | 0x4;
+    e.metadata().is_ok_and(|m| m.file_attributes() & HIDDEN_SYSTEM == HIDDEN_SYSTEM)
+}
+
+#[cfg(not(windows))]
+fn hidden_system(_e: &walkdir::DirEntry) -> bool {
+    false
 }
 
 fn load_known(conn: &Connection, volume_id: i64, rel: &str) -> Result<HashMap<(String, String), Known>> {

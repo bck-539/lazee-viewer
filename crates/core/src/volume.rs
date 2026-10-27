@@ -59,6 +59,23 @@ pub struct Located {
     pub rel: String,
 }
 
+/// A bare drive letter such as `D:` means "the current folder on D:" to
+/// Windows, but a person typing or picking it means the whole drive.
+pub fn normalize(path: &Path) -> PathBuf {
+    let s = path.as_os_str().to_string_lossy();
+    let b = s.as_bytes();
+    if cfg!(windows) && b.len() == 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
+        return PathBuf::from(format!("{s}\\"));
+    }
+    path.to_path_buf()
+}
+
+/// True when `dir` is the root of a drive or share, such as `D:\` or
+/// `\\nas\photos`.
+pub fn is_root(dir: &Path) -> bool {
+    dir.parent().is_none()
+}
+
 pub fn locate(path: &Path) -> std::io::Result<Located> {
     let path = std::path::absolute(path)?;
     let (volume, root) = sys::volume_of(&path)?;
