@@ -197,7 +197,7 @@ async function loadSources(sources) {
 
 $("#sidebar nav").addEventListener("click", (e) => {
   const b = e.target.closest(".source");
-  if (!b || b.id === "people-nav") return;
+  if (!b || b.id === "people-nav" || b.id === "dupes-nav") return;
   state.group = state.person = null;
   showGrid();
   state.source = b.dataset.source === "" ? null : Number(b.dataset.source);

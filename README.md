@@ -80,6 +80,17 @@ yet, so Windows SmartScreen may ask you to confirm the first start.
   understand. JPEGs are changed in place without touching the image data;
   RAW files get an `.xmp` sidecar. Only photos whose names differ from
   the library are written.
+- Duplicates: *Duplicates* finds photos that are in more than one place,
+  under any name. Copies must have exactly the same picture; metadata
+  (EXIF, XMP tags, comments) is ignored for JPEGs, so a copy another
+  program tagged still counts. Mark *leading folders* (the copy there is
+  kept) and *backup folders* (copies there are expected and never picked).
+  Each photo is a row: the kept copy first, then one column per copy with
+  its folder, ticked when it will be deleted. *Where the copies are* picks
+  or keeps every copy in a folder at once. Deleted copies go to the Recycle
+  Bin; on network shares and USB sticks, which have none, they are moved
+  into a `.Deleted by Lazee Viewer` folder instead. Names given to faces in
+  a deleted copy move to the copy that is kept.
 
 ## Face models are plug-ins
 
@@ -168,11 +179,14 @@ The library lives in `%LOCALAPPDATA%\io.github.bck539.lazeeviewer`:
    queue.
 6. **Search** (done): people with AND/OR, date and folder filters, timeline,
    optional XMP write-back (off by default).
+7. **Duplicates** (done): find copies across folders, leading and backup
+   folders, review and delete to the Recycle Bin.
 
 ## Privacy
 
 Face data never leaves your PC, face scanning is opt-in, and your
-photo files are never modified unless you turn on metadata write-back.
+photo files are never modified unless you turn on metadata write-back or
+delete duplicates yourself.
 
 ## Licence
 

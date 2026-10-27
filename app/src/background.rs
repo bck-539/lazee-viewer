@@ -3,6 +3,7 @@
 //! that notices drives coming and going and rescans network shares.
 
 use crate::{faces, AppState};
+use lazee_core::duplicates::{self, DupProgress};
 use lazee_core::facescan::FaceProgress;
 use lazee_core::tagscan::TagProgress;
 use lazee_core::writeback;
@@ -146,6 +147,17 @@ fn run_scans(app: AppHandle, mut ctl: Arc<ScanControl>, mut which: Option<Vec<i6
             let _ = app.emit("writing-started", ());
             let result = writeback::run(lib, &ctl).map_err(|e| e.to_string());
             let _ = app.emit("writing-finished", result);
+        }
+
+        // ...and keep the list of duplicates current, once the user has
+        // asked for it.
+        if !ctl.is_cancelled() && duplicates::enabled(lib) {
+            let _ = app.emit("dups-started", ());
+            let on_progress = throttled(|p: &DupProgress| {
+                let _ = app.emit("dup-progress", p);
+            });
+            let result = duplicates::find(lib, &ctl, &on_progress).map_err(|e| e.to_string());
+            let _ = app.emit("dups-finished", result);
         }
 
         let mut running = state.scans.running.lock().unwrap();
