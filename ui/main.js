@@ -217,12 +217,18 @@ async function removeSource(s) {
 }
 
 $("#add-source").addEventListener("click", async () => {
-  const path = await openDialog({ directory: true, multiple: false, title: "Add a photo folder" });
+  const path = await openDialog({ directory: true, multiple: false, title: "Add a photo folder or a whole drive" });
   if (!path) return;
   try {
-    // Adding a folder starts its scan in the background.
+    // Adding a folder starts its scan in the background. Folders inside it
+    // that were already in the library are folded into it.
     await invoke("add_source", { path });
-    await loadSources();
+    const sources = await invoke("sources");
+    if (state.source !== null && !sources.some((s) => s.id === state.source)) {
+      state.source = null;
+      loadPhotos();
+    }
+    await loadSources(sources);
   } catch (e) {
     alert(e);
   }
