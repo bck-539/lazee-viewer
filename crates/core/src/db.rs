@@ -150,6 +150,24 @@ const SCHEMA: &[&str] = &[
         PRIMARY KEY (a, b)
     ) WITHOUT ROWID;
     "#,
+    // Version 5: duplicates. Per file, for the version of it in
+    // `content_hash`: a cheap key, and for files sharing a key, a hash of
+    // the picture without metadata. Plus folders marked leading or backup.
+    r#"
+    CREATE TABLE dup_hashes (
+        file_id      INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+        content_hash BLOB NOT NULL,
+        quick        BLOB NOT NULL,
+        picture      BLOB
+    );
+    CREATE INDEX dup_hashes_picture ON dup_hashes(picture);
+    CREATE TABLE dup_folders (
+        volume_id INTEGER NOT NULL REFERENCES volumes(id) ON DELETE CASCADE,
+        rel_path  TEXT NOT NULL COLLATE NOCASE,
+        role      TEXT NOT NULL,
+        PRIMARY KEY (volume_id, rel_path)
+    );
+    "#,
 ];
 
 const THUMBS_SCHEMA: &str = r#"

@@ -571,7 +571,7 @@ fn pair_raw_with_jpeg(conn: &Connection) -> Result<()> {
 }
 
 /// Seconds since 1970 to `YYYY-MM-DDTHH:MM:SS` in UTC.
-fn unix_to_iso(secs: i64) -> String {
+pub(crate) fn unix_to_iso(secs: i64) -> String {
     let days = secs.div_euclid(86_400);
     let rem = secs.rem_euclid(86_400);
     // Civil-from-days, after Howard Hinnant.

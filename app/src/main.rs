@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod background;
+mod duplicates;
 mod faces;
 mod people;
 
@@ -290,6 +291,13 @@ fn main() {
             people::merge_groups,
             people::same_person,
             people::not_same_person,
+            duplicates::dup_folders,
+            duplicates::set_dup_folder,
+            duplicates::remove_dup_folder,
+            duplicates::find_duplicates,
+            duplicates::duplicates_enabled,
+            duplicates::duplicates,
+            duplicates::delete_duplicates,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lazee Viewer");

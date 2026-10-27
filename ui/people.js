@@ -41,6 +41,8 @@ function setToolbar(mode) {
   $("#grid-wrap").hidden = !photos;
   if (!photos) $("#filter-bar").hidden = true;
   $("#person-bar").hidden = !(photos && (state.person !== null || state.group !== null));
+  $("#dupes").hidden = mode !== "dupes";
+  $("#dupes-nav").classList.toggle("active", mode === "dupes");
 }
 
 function showGrid() {

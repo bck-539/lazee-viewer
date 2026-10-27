@@ -1,8 +1,10 @@
 //! Core of Lazee Viewer: the photo library index, metadata, RAW previews and
-//! the thumbnail cache. Everything the UI shows comes from here, and nothing
-//! in this crate ever writes to the user's photo folders.
+//! the thumbnail cache. Everything the UI shows comes from here. Nothing in
+//! this crate writes to the user's photo folders unless they ask: saving
+//! names into photos, or deleting duplicate copies.
 
 pub mod db;
+pub mod duplicates;
 pub mod faces;
 pub mod facescan;
 pub mod formats;

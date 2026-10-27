@@ -12,6 +12,7 @@
     <nav>
       <button class="source active" data-source="">All photos</button>
       <button id="people-nav" class="source">People</button>
+      <button id="dupes-nav" class="source">Duplicates</button>
       <div id="sources"></div>
     </nav>
     <button id="add-source" class="primary" title="Add a folder, or a whole drive such as D:\ or a USB stick">Add folder…</button>
@@ -66,6 +67,7 @@
       <div id="timeline" hidden><span id="timeline-tip" hidden></span></div>
     </div>
     <div id="people" hidden tabindex="0"></div>
+    <div id="dupes" hidden tabindex="0"></div>
     <footer id="info"></footer>
   </main>
   <div id="viewer" hidden tabindex="-1">
@@ -132,5 +134,6 @@
   <script src="people.js"></script>
   <script src="search.js"></script>
   <script src="viewer.js"></script>
+  <script src="duplicates.js"></script>
 </body>
 </html>

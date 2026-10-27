@@ -1895,7 +1895,7 @@ dependencies = [
 
 [[package]]
 name = "lazee-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blake3",
  "crossbeam-channel",
@@ -1917,7 +1917,7 @@ dependencies = [
 
 [[package]]
 name = "lazee-viewer"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "env_logger",
  "lazee-core",
