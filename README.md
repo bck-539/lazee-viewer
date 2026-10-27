@@ -16,13 +16,19 @@ spread over internal disks, USB drives and a NAS.
 Get the latest `lazee-viewer-…-windows-x64.zip` from
 [Releases](https://github.com/bck-539/lazee-viewer/releases), unzip it
 anywhere and run `lazee-viewer.exe`. It needs the Microsoft Edge WebView2
-runtime, which Windows 10 and 11 already have. The exe isn't code-signed
+runtime, which Windows 10 and 11 already have; everything else, including
+the Visual C++ runtime that face finding uses, is in the zip. The exe isn't code-signed
 yet, so Windows SmartScreen may ask you to confirm the first start.
 
 ## What works today
 
 - Add folders on internal drives, USB drives and network shares (UNC paths
-  or mapped drives). Files are indexed in place, never moved or copied.
+  or mapped drives), or add a whole drive or share at once. Files are indexed
+  in place, never moved or copied. On a whole drive, Windows, Program Files,
+  ProgramData, AppData, recycle bins and other system folders are skipped,
+  and folders Windows won't let the app read are left out without stopping
+  the scan. Adding a drive that already has folders in the library folds them
+  into it, keeping their faces and names.
 - Drives are recognised by volume serial number (or share name), so a USB
   disk that comes back as `E:` instead of `F:` is still the same disk.
   Photos on a disconnected drive stay in the library, greyed out.
