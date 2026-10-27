@@ -75,14 +75,19 @@ fn finds_copies_and_deletes_the_extra_ones() {
     let r = lib.delete_duplicates(&all).unwrap();
     assert_eq!((r.recycled + r.moved_aside, r.failed.len()), (0, 2));
 
-    // The suggested copies go. There's no Recycle Bin off Windows, so they
-    // are moved aside, where scans don't see them.
+    // The suggested copies go: to the Recycle Bin on a Windows fixed drive,
+    // otherwise moved aside, where scans don't see them.
     let picked: Vec<i64> = g.copies.iter().filter(|c| c.suggested).map(|c| c.id).collect();
     let r = lib.delete_duplicates(&picked).unwrap();
-    assert_eq!((r.moved_aside, r.failed.len()), (2, 0), "{:?}", r.failed);
+    assert_eq!((r.recycled + r.moved_aside, r.failed.len()), (2, 0), "{:?}", r.failed);
     assert!(!p.join("Phone/IMG_0001.jpg").exists());
-    assert!(p.join(ASIDE_FOLDER).join("Phone/IMG_0001.jpg").exists());
-    assert!(p.join(ASIDE_FOLDER).join("Main/sub/a copy.jpg").exists());
+    assert!(!p.join("Main/sub/a copy.jpg").exists());
+    if cfg!(windows) {
+        assert_eq!(r.recycled, 2);
+    } else {
+        assert!(p.join(ASIDE_FOLDER).join("Phone/IMG_0001.jpg").exists());
+        assert!(p.join(ASIDE_FOLDER).join("Main/sub/a copy.jpg").exists());
+    }
     assert!(p.join("Main/a.jpg").exists());
     assert_eq!(lib.photo_list(SortOrder::Name, None).unwrap().ids.len(), 5);
 
